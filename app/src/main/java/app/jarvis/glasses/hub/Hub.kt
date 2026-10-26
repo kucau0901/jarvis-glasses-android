@@ -6,6 +6,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -60,6 +63,42 @@ class Hub(private val client: JarvisClient) {
   suspend fun tickNote(panel: String, key: String) {
     post<JsonObject>("/api/hub/panels/note", buildJsonObject { put("panel", panel); put("tick", key) })
   }
+
+  suspend fun addNote(panel: String, text: String) {
+    post<JsonObject>("/api/hub/panels/note", buildJsonObject { put("panel", panel); put("add", text.take(120)) })
+  }
+
+  /** Takes the ticked to-dos off [panel]. */
+  suspend fun clearTicked(panel: String) {
+    post<JsonObject>("/api/hub/panels/note", buildJsonObject { put("panel", panel); put("clear", true) })
+  }
+
+  /**
+   * "Alert me" on a thing: when it turns [state] ("on" for its first word, "off" for its second), goes
+   * "above" or "below" [value], or, for a reading Jarvis looks up, when [condition] holds. Jarvis makes
+   * a routine of it and says so.
+   */
+  suspend fun alert(panel: String, key: String, state: String? = null, value: Double? = null, condition: String? = null): String =
+      post<ActReply>(
+              "/api/hub/panels/alert",
+              buildJsonObject {
+                put("panel", panel)
+                put("key", key)
+                state?.let { put("when", it) }
+                value?.let { put("value", it) }
+                condition?.let { put("condition", it.take(200)) }
+              },
+          )
+          .text
+
+  /** Where something is, as a picture from Jarvis's map proxy, which keeps the Maps key to itself. */
+  suspend fun map(lat: Double, lng: Double): ByteArray =
+      withContext(Dispatchers.IO) {
+        client.http.newCall(client.request(mapPath(lat, lng)).get().build()).execute().use { res ->
+          if (!res.isSuccessful) throw JarvisClient.JarvisException(JarvisClient.errorOf(res.code, res.body?.string().orEmpty()))
+          res.body?.bytes() ?: ByteArray(0)
+        }
+      }
 
   /** Your panels in this order (their ids), as dragging them on the web keeps it: for you, on every screen. */
   suspend fun orderPanels(ids: List<String>): List<String> = post<OrderReply>("/api/hub/panels/order", orderBody(null, ids)).order
@@ -168,6 +207,8 @@ class Hub(private val client: JarvisClient) {
           res.code == 423 -> throw Locked()
           // "that is for a person, not a device"
           res.code == 403 && text.contains("for a person") -> throw NotAPerson()
+          // A person's 403 says what it needs ("alerts are routines, which need …"), not a device's scopes.
+          res.code == 403 -> throw JarvisClient.JarvisException(errorIn(text) ?: JarvisClient.errorOf(res.code, text))
           else -> throw JarvisClient.JarvisException(JarvisClient.errorOf(res.code, text))
         }
       }
@@ -176,9 +217,16 @@ class Hub(private val client: JarvisClient) {
 
   private fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
 
+  private fun errorIn(text: String): String? =
+      runCatching { (JSON_IN.parseToJsonElement(text).jsonObject["error"] as? JsonPrimitive)?.contentOrNull }.getOrNull()
+
   companion object {
     private val JSON = "application/json".toMediaType()
     val JSON_IN = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
+
+    /** A map as the web asks for one (HomeChart.ts mapImage), so both share what Jarvis keeps of it. */
+    fun mapPath(lat: Double, lng: Double): String =
+        "/api/map?kind=map&lat=${"%.5f".format(java.util.Locale.US, lat)}&lng=${"%.5f".format(java.util.Locale.US, lng)}&sv=3&w=640&h=300&zoom=15"
 
     /** Jarvis reads at most this much of a move (`readObject(req, 2_000)`). */
     const val ORDER_LIMIT = 2_000

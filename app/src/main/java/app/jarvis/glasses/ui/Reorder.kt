@@ -1,5 +1,6 @@
 package app.jarvis.glasses.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.padding
@@ -127,19 +128,19 @@ internal suspend fun PointerInputScope.holdToMove(
  * (Lock become Unlock) it is a new button and the press under way ends there.
  */
 @Composable
-internal fun SafePill(label: String, enabled: Boolean = true, modifier: Modifier = Modifier, onPress: () -> Unit) {
+internal fun SafePill(label: String, enabled: Boolean = true, modifier: Modifier = Modifier, selected: Boolean = false, onPress: () -> Unit) {
   val c = Even.colors
   val press by rememberUpdatedState(onPress)
   Text(
       label,
       style = MaterialTheme.typography.labelLarge,
-      color = if (enabled) c.ink else c.dim,
+      color = if (!enabled) c.dim else if (selected) c.tile else c.ink,
       maxLines = 1,
       overflow = TextOverflow.Ellipsis,
       modifier =
           modifier
               .clip(RoundedCornerShape(50))
-              .outlinePill(c.line)
+              .let { if (selected) it.background(c.ink) else it.outlinePill(c.line) }
               .semantics(mergeDescendants = true) {
                 role = Role.Button
                 if (enabled) onClick { press(); true }

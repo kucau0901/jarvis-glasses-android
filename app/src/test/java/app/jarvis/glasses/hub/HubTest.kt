@@ -218,6 +218,54 @@ class HubTest {
   }
 
   @Test
+  fun alertMeSendsWhatWasChosen() = runBlocking {
+    repeat(3) { server.enqueue(MockResponse().setBody("""{"text":"You will be told when Gate opens."}""")) }
+    assertEquals("You will be told when Gate opens.", hub.alert("p_1", "cover.gate", state = "on"))
+    assertEquals("on", body()["when"]!!.jsonPrimitive.content)
+    hub.alert("p_1", "sensor.t", state = "above", value = 31.5)
+    val n = body()
+    assertEquals("above", n["when"]!!.jsonPrimitive.content)
+    assertEquals(31.5, n["value"]!!.jsonPrimitive.content.toDouble(), 0.0)
+    hub.alert("p_1", "t_ab", condition = "above 150")
+    val w = body()
+    assertEquals("above 150", w["condition"]!!.jsonPrimitive.content)
+    assertEquals(setOf("panel", "key", "condition"), w.keys)
+  }
+
+  @Test
+  fun alertsNeedRoutines() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":"alerts are routines, which need \"routines\"","need":"routines"}"""))
+    try {
+      hub.alert("p_1", "cover.gate", state = "on")
+      fail("expected an error")
+    } catch (e: JarvisClient.JarvisException) {
+      assertTrue(e.message!!, e.message!!.contains("routines"))
+    }
+  }
+
+  @Test
+  fun toDosAreAddedAndClearedTicked() = runBlocking {
+    repeat(2) { server.enqueue(MockResponse().setBody("""{"ok":true}""")) }
+    hub.addNote("p_1", "Buy milk")
+    val add = server.takeRequest()
+    assertEquals("/api/hub/panels/note", add.path)
+    val b = Json.parseToJsonElement(add.body.readUtf8()).jsonObject
+    assertEquals("Buy milk", b["add"]!!.jsonPrimitive.content)
+    hub.clearTicked("p_1")
+    assertEquals("true", body()["clear"].toString())
+  }
+
+  @Test
+  fun aMapIsAskedForAsTheWebDoes() = runBlocking {
+    assertEquals("/api/map?kind=map&lat=1.50000&lng=103.70000&sv=3&w=640&h=300&zoom=15", Hub.mapPath(1.5, 103.7))
+    server.enqueue(MockResponse().setBody(okio.Buffer().write(byteArrayOf(1, 2, 3))))
+    assertEquals(3, hub.map(1.5, 103.7).size)
+    val req = server.takeRequest()
+    assertEquals("/api/map?kind=map&lat=1.50000&lng=103.70000&sv=3&w=640&h=300&zoom=15", req.path)
+    assertEquals("Bearer jss1_test", req.getHeader("Authorization"))
+  }
+
+  @Test
   fun historyIsKeptTenAtATime() = runBlocking {
     server.enqueue(MockResponse().setBody("""{"kept":2}"""))
     hub.keep(List(12) { Said("id$it" + "xxxx", 0, if (it % 2 == 0) "user" else "assistant", "t$it") })

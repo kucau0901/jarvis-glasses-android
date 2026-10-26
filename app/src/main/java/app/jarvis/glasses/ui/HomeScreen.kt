@@ -128,6 +128,8 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
   // Bumped by every move: a reading of the panels asked for before it is old and is dropped.
   var seq by remember { mutableIntStateOf(0) }
   var sheet by remember { mutableStateOf<String?>(null) }
+  var can by remember { mutableStateOf<app.jarvis.glasses.hub.Can?>(null) }
+  var loaded by remember { mutableStateOf(false) }
   val connected by app.audio.connected.collectAsStateWithLifecycle()
   val status by app.conversation.status.collectAsStateWithLifecycle()
   val liveState by app.live.state.collectAsStateWithLifecycle()
@@ -168,6 +170,8 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
             .onSuccess {
               if (mover.held == null && asked == seq) {
                 panels = it.panels
+                can = it.can
+                loaded = true
                 problem = ""
                 val here = it.panels.flatMap { p -> p.rows.map { r -> "${p.id}\n${r.key}" } }.toSet()
                 readings.keys.retainAll(here)
@@ -184,6 +188,14 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
     scope.launch {
       flash = runCatching { app.hub.act(panel.id, row.key, action, member, value, code) }.fold({ it }, { it.message ?: "That didn't work" })
       delay(1_500)
+      refreshTick++
+    }
+  }
+
+  /** A change to a to-do list, then the panels read again to show it. */
+  fun note(change: suspend () -> Unit) {
+    scope.launch {
+      runCatching { change() }.onFailure { flash = "Could not change the list: ${it.message}" }
       refreshTick++
     }
   }
@@ -345,6 +357,11 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
           }
         }
       }
+      if (loaded && panels.isEmpty() && app.prefs.token.startsWith("jss1_")) {
+        item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+          Text(emptyHomeText(can), style = MaterialTheme.typography.bodyMedium, color = c.dim, modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp))
+        }
+      }
       items(cells, key = { it.id }, span = { GridItemSpan(if (it.wide) maxLineSpan else 1) }, contentType = { it::class }) { cell ->
         val lifted = held != null && (cell.id == held.cell || (cell is Cell.Thing && cell.panel.id == held.panel && cell.thing == held.thing))
         GridCell(
@@ -360,7 +377,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
             onDrop = { if (mover.held?.cell == cell.id) drop() },
             nudge = { nudge(cell, it) },
             more = { sheet = cell.id },
-            tick = { panel, key -> scope.launch { runCatching { app.hub.tickNote(panel.id, key) }; refreshTick++ } },
+            tick = { panel, key -> note { app.hub.tickNote(panel.id, key) } },
             press = ::press,
         )
       }
@@ -404,11 +421,23 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
     ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = c.tile) {
       Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         when (opened) {
-          is Cell.Thing -> ThingSheet(opened.panel, opened.row, readingOf(opened.panel, opened.row), ::press)
-          is Cell.Notes -> {
-            Text(opened.panel.title, style = MaterialTheme.typography.titleMedium)
-            for (n in opened.rows) NoteLine(n) { scope.launch { runCatching { app.hub.tickNote(opened.panel.id, n.key) }; refreshTick++ } }
-          }
+          is Cell.Thing ->
+              ThingSheet(opened.panel, opened.row, readingOf(opened.panel, opened.row), app.hub, ::press) { state, value, condition ->
+                app.hub.alert(opened.panel.id, opened.row.key, state, value, condition).also {
+                  scope.launch {
+                    delay(1_500)
+                    refreshTick++
+                  }
+                }
+              }
+          is Cell.Notes ->
+              NotesSheet(
+                  opened.panel.title,
+                  opened.rows,
+                  tick = { key -> note { app.hub.tickNote(opened.panel.id, key) } },
+                  add = { text -> note { app.hub.addNote(opened.panel.id, text) } },
+                  clear = { note { app.hub.clearTicked(opened.panel.id) } },
+              )
           is Cell.Header -> {}
         }
         if (flash.isNotEmpty()) Text(flash, style = MaterialTheme.typography.bodySmall, color = c.dim)
@@ -567,7 +596,7 @@ private fun NotesTile(cell: Cell.Notes, modifier: Modifier, enabled: Boolean, mo
 private val NOTE_LINE = 40.dp
 
 @Composable
-private fun NoteLine(note: PanelRow, enabled: Boolean = true, tick: () -> Unit) {
+internal fun NoteLine(note: PanelRow, enabled: Boolean = true, tick: () -> Unit) {
   Row(
       Modifier.fillMaxWidth().height(NOTE_LINE).toggleable(value = note.done == true, enabled = enabled, role = Role.Checkbox) { tick() },
       verticalAlignment = Alignment.CenterVertically,
@@ -580,7 +609,7 @@ private fun NoteLine(note: PanelRow, enabled: Boolean = true, tick: () -> Unit) 
 
 /** All of a thing, on a tap of its tile: its name and state or reading in full, every button, and its controls. */
 @Composable
-private fun ThingSheet(panel: Panel, row: PanelRow, reading: Reading?, press: Press) {
+private fun ThingSheet(panel: Panel, row: PanelRow, reading: Reading?, hub: Hub, press: Press, alert: suspend (String?, Double?, String?) -> String) {
   val c = Even.colors
   Row(verticalAlignment = Alignment.CenterVertically) {
     Icon(HomeIcons.of(row.icon), contentDescription = null, tint = iconTint(row), modifier = Modifier.size(24.dp))
@@ -592,24 +621,32 @@ private fun ThingSheet(panel: Panel, row: PanelRow, reading: Reading?, press: Pr
   if (row.value.isNotEmpty()) Text(row.value, style = MaterialTheme.typography.bodyMedium, color = c.dim)
   row.level?.let { Battery((it / 100.0).toFloat().coerceIn(0f, 1f), it < LOW_BATTERY) }
   row.note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = c.danger) }
-  if (row.read) ReadingView(row, reading)
+  if (row.read) ReadingView(row, reading, hub)
   Figures(row.tiles)
   if (row.alerts.isNotEmpty()) Text("Alerts: " + row.alerts.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.tintOpen)
   Buttons(row.actions.filter { it.input == null }) { press(panel, row, it.action, null, null, null) }
+  for (a in row.actions.filter { it.input != null }) key(a.action) { InputAction(a, enabled = true) { v -> press(panel, row, a.action, null, v, null) } }
   More(panel, row, press)
+  val more = row.more ?: return
+  if (more.history) HistoryChart(hub, panel.id, row.key)
+  more.map?.let { MapPicture(hub, it.lat, it.lng) }
+  more.alert?.let { AlertMe(it, alert) }
 }
 
 /** A tile's reading in full, in the web's order: its line, figures, list, when it was checked, and where from. */
 @Composable
-private fun ReadingView(row: PanelRow, reading: Reading?) {
+private fun ReadingView(row: PanelRow, reading: Reading?, hub: Hub) {
   val c = Even.colors
   val context = androidx.compose.ui.platform.LocalContext.current
   when {
     reading == null -> Text("…", style = MaterialTheme.typography.bodyMedium, color = c.dim)
     else -> {
       if (reading.text.isNotBlank()) Text(reading.text, style = MaterialTheme.typography.bodyMedium, color = if (reading.failed) c.dim else c.ink)
+      reading.image?.takeIf { it.startsWith("data:image/") }?.let { ReadingPicture(it) }
       Figures(reading.figures)
       for (line in reading.list) Text("•  $line", style = MaterialTheme.typography.bodySmall, color = c.ink)
+      reading.chart?.takeIf { it.points.size >= 2 }?.let { ch -> LineChart(ch.points.map { it.y }, "", ch.title, ch.points.first().x, ch.points.last().x) }
+      reading.map?.let { MapPicture(hub, it.lat, it.lng) }
       reading.at?.let { Text(checkedAt(it), style = MaterialTheme.typography.labelSmall, color = c.dim) }
       reading.source?.takeIf { it.startsWith("https://") }?.let { url ->
         Text(
@@ -715,12 +752,17 @@ private fun More(panel: Panel, row: PanelRow, press: Press) {
   }
   more.climate?.let { cl ->
     val target = cl.target ?: cl.now ?: cl.min
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-      Buttons(listOf(PanelAction("temp:${fmt(target - cl.step)}", "−"))) { press(panel, row, it.action, null, null, null) }
-      Text("${fmt(target)}°", style = MaterialTheme.typography.titleMedium)
-      Buttons(listOf(PanelAction("temp:${fmt(target + cl.step)}", "+"))) { press(panel, row, it.action, null, null, null) }
+    // As the web: no temperature to set while it is off.
+    if (cl.mode != "off") {
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Buttons(listOf(PanelAction("temp:${fmt(target - cl.step)}", "−"))) { press(panel, row, it.action, null, null, null) }
+        Text("${fmt(target)}°", style = MaterialTheme.typography.titleMedium)
+        Buttons(listOf(PanelAction("temp:${fmt(target + cl.step)}", "+"))) { press(panel, row, it.action, null, null, null) }
+        cl.now?.let { Text("now ${fmt(it)}°", style = MaterialTheme.typography.bodySmall, color = c.dim) }
+      }
     }
-    if (cl.modes.isNotEmpty()) Buttons(cl.modes.map { PanelAction("mode:$it", it) }) { press(panel, row, it.action, null, null, null) }
+    if (cl.modes.isNotEmpty()) Choices("Mode", cl.modes, cl.mode) { press(panel, row, "mode:$it", null, null, null) }
+    if (cl.fans.isNotEmpty()) Choices("Fan", cl.fans, cl.fan) { press(panel, row, "fan:$it", null, null, null) }
   }
   more.actions?.let { acts ->
     var code by remember { mutableStateOf("") }
