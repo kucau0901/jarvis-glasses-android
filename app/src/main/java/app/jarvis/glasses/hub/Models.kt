@@ -73,6 +73,8 @@ data class Climate(
 
 @Serializable data class ActReply(val text: String = "")
 
+@Serializable data class OrderReply(val order: List<String> = emptyList())
+
 // Chat history (src/worker/lib/conversation.ts)
 
 @Serializable

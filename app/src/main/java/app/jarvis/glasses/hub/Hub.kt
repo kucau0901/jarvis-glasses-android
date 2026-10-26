@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -48,6 +49,12 @@ class Hub(private val client: JarvisClient) {
   suspend fun tickNote(panel: String, key: String) {
     post<JsonObject>("/api/hub/panels/note", buildJsonObject { put("panel", panel); put("tick", key) })
   }
+
+  /** Your panels in this order (their ids), as dragging them on the web keeps it: for you, on every screen. */
+  suspend fun orderPanels(ids: List<String>): List<String> = post<OrderReply>("/api/hub/panels/order", orderBody(null, ids)).order
+
+  /** A panel's things in this order (their row keys). Those not named follow, in the order they were. */
+  suspend fun orderThings(panel: String, keys: List<String>): List<String> = post<OrderReply>("/api/hub/panels/order", orderBody(panel, keys)).order
 
   // Chat history, shared with the web app's Chat tab
 
@@ -161,6 +168,19 @@ class Hub(private val client: JarvisClient) {
   companion object {
     private val JSON = "application/json".toMediaType()
     val JSON_IN = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
+
+    /** Jarvis reads at most this much of a move (`readObject(req, 2_000)`). */
+    const val ORDER_LIMIT = 2_000
+
+    /** `{order: [...]}` for panels, `{panel, order: [...]}` for a panel's things; each name once. */
+    fun orderBody(panel: String?, order: List<String>): JsonObject {
+      val body = buildJsonObject {
+        panel?.let { put("panel", it) }
+        put("order", buildJsonArray { for (o in order.distinct()) add(o) })
+      }
+      if (body.toString().length > ORDER_LIMIT) throw JarvisClient.JarvisException("Too many tiles to move from the phone")
+      return body
+    }
 
     /** The last turns sent with a typed question: 20 within the last 3 hours, as the web app does. */
     fun transcript(history: List<Said>, now: Long): List<Turn> =

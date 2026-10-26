@@ -85,6 +85,50 @@ class HubTest {
   }
 
   @Test
+  fun movingPanelsSendsTheirOrder() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"order":["p2","p1","p3"]}"""))
+    assertEquals(listOf("p2", "p1", "p3"), hub.orderPanels(listOf("p2", "p1")))
+    val req = server.takeRequest()
+    assertEquals("POST", req.method)
+    assertEquals("/api/hub/panels/order", req.path)
+    assertEquals("Bearer jss1_test", req.getHeader("Authorization"))
+    val b = Json.parseToJsonElement(req.body.readUtf8()).jsonObject
+    assertEquals(setOf("order"), b.keys)
+    assertEquals(listOf("p2", "p1"), b["order"]!!.jsonArray.map { it.jsonPrimitive.content })
+  }
+
+  @Test
+  fun movingThingsSendsThePanelAndEachKeyOnce() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"order":["car1","cover.gate"]}"""))
+    hub.orderThings("p1", listOf("car1", "car1", "cover.gate"))
+    val b = body()
+    assertEquals("p1", b["panel"]!!.jsonPrimitive.content)
+    assertEquals(listOf("car1", "cover.gate"), b["order"]!!.jsonArray.map { it.jsonPrimitive.content })
+  }
+
+  @Test
+  fun aMoveInAGonePanelSaysWhy() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"There is no such panel."}"""))
+    try {
+      hub.orderThings("p9", listOf("a"))
+      fail("expected an error")
+    } catch (e: JarvisClient.JarvisException) {
+      assertTrue(e.message!!, e.message!!.contains("no such panel"))
+    }
+  }
+
+  @Test
+  fun aMoveTooLongForJarvisIsNotSent() = runBlocking {
+    try {
+      hub.orderThings("p1", List(200) { "light.lamp_number_$it" })
+      fail("expected an error")
+    } catch (e: JarvisClient.JarvisException) {
+      assertEquals("Too many tiles to move from the phone", e.message)
+    }
+    assertEquals(0, server.requestCount)
+  }
+
+  @Test
   fun historyIsKeptTenAtATime() = runBlocking {
     server.enqueue(MockResponse().setBody("""{"kept":2}"""))
     hub.keep(List(12) { Said("id$it" + "xxxx", 0, if (it % 2 == 0) "user" else "assistant", "t$it") })
