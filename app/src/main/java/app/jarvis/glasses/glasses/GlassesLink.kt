@@ -15,7 +15,15 @@ import com.meta.wearable.dat.camera.types.VideoQuality
 import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.core.selectors.AutoDeviceSelector
 import com.meta.wearable.dat.core.session.DeviceSessionState
+import com.meta.wearable.dat.core.types.ChargingState
+import com.meta.wearable.dat.core.types.Device
+import com.meta.wearable.dat.core.types.DeviceCompatibility
+import com.meta.wearable.dat.core.types.DeviceType
+import com.meta.wearable.dat.core.types.DonState
+import com.meta.wearable.dat.core.types.HingeState
+import com.meta.wearable.dat.core.types.LinkState
 import com.meta.wearable.dat.core.types.Permission
+import com.meta.wearable.dat.core.types.ThermalLevel
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
 import com.meta.wearable.dat.core.voiceinvocations.startVoiceInvocationsStream
@@ -28,6 +36,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -43,7 +53,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * reads "no glasses on this phone" for the life of the process (Meta's BirdSpotter sample,
  * `MainActivity`).
  */
-class GlassesLink(private val context: Context, private val scope: CoroutineScope) : Eyes {
+class GlassesLink(private val context: Context, private val scope: CoroutineScope) : Eyes, GlassesSource {
+  private val _glasses = MutableStateFlow<List<GlassesState>>(emptyList())
+  /** The Meta glasses the toolkit knows: their battery, link, whether they are worn, and so on. */
+  override val glasses: StateFlow<List<GlassesState>> = _glasses
+
   private val _registered = MutableStateFlow(false)
   val registered: StateFlow<Boolean> = _registered
 
@@ -72,6 +86,13 @@ class GlassesLink(private val context: Context, private val scope: CoroutineScop
             }
           }
           scope.launch { heyMeta(onHeyMeta) }
+          scope.launch {
+            Wearables.devices.collectLatest { ids ->
+              val each = ids.mapNotNull { Wearables.devicesMetadata[it] }
+              if (each.isEmpty()) _glasses.value = emptyList()
+              else combine(each) { all -> all.map(::stateOf) }.collect { _glasses.value = it }
+            }
+          }
         },
         onFailure = { error, _ ->
           Log.e(TAG, "Wearables toolkit did not start: ${error.description}")
@@ -211,6 +232,26 @@ class GlassesLink(private val context: Context, private val scope: CoroutineScop
 
   companion object {
     private const val TAG = "GlassesLink"
+
+    /** A pair as the toolkit describes it, in words any maker's glasses can use. */
+    fun stateOf(d: Device): GlassesState =
+        GlassesState(
+            name = d.name,
+            model = d.deviceType.takeIf { it != DeviceType.UNKNOWN }?.description.orEmpty(),
+            link =
+                when (d.linkState) {
+                  LinkState.CONNECTED -> GlassesState.Link.CONNECTED
+                  LinkState.CONNECTING -> GlassesState.Link.CONNECTING
+                  else -> GlassesState.Link.AWAY
+                },
+            battery = d.batteryLevel.takeIf { it in 0..100 },
+            charging = when (d.chargingState) { ChargingState.CHARGING -> true; ChargingState.NOT_CHARGING -> false; else -> null },
+            worn = when (d.donState) { DonState.DONNED -> true; DonState.DOFFED -> false; else -> null },
+            folded = when (d.hingeState) { HingeState.CLOSED -> true; HingeState.OPEN -> false; else -> null },
+            hot = d.thermalLevel.ordinal >= ThermalLevel.MODERATE.ordinal,
+            display = d.isDisplayCapable(),
+            needsUpdate = d.compatibility.takeIf { it == DeviceCompatibility.DEVICE_UPDATE_REQUIRED || it == DeviceCompatibility.SDK_UPDATE_REQUIRED }?.displayString,
+        )
 
     /** About 1024 px on the long side, as Jarvis asks: the model sees no more in a larger one. */
     fun jpeg(bitmap: Bitmap): ByteArray {

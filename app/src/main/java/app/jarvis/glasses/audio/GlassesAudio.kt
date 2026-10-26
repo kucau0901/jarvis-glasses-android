@@ -56,16 +56,26 @@ class GlassesAudio(context: Context) : Ears, Mouth {
   /** Whether the glasses are connected to the phone as a headset right now. */
   val connected: StateFlow<Boolean> = _connected
 
+  private val _headset = MutableStateFlow<String?>(null)
+  /** The glasses' name while they are connected as a headset, for glasses no toolkit knows. */
+  val headset: StateFlow<String?> = _headset
+
+  private fun update() {
+    val g = glasses()
+    _connected.value = g != null
+    _headset.value = g?.productName?.toString()
+  }
+
   init {
-    _connected.value = glasses() != null
+    update()
     audio.registerAudioDeviceCallback(
         object : AudioDeviceCallback() {
           override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) {
-            _connected.value = glasses() != null
+            update()
           }
 
           override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) {
-            _connected.value = glasses() != null
+            update()
           }
         },
         Handler(Looper.getMainLooper()),

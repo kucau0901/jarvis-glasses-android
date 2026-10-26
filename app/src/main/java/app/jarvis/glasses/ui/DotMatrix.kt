@@ -14,22 +14,26 @@ import androidx.compose.ui.unit.dp
  * space; anything else is left blank.
  */
 @Composable
-fun DotMatrix(text: String, color: Color, dot: Dp = 3.dp, modifier: Modifier = Modifier) {
-  val cols = text.length * (GLYPH_W + 1) - 1
-  Canvas(modifier.size(dot * 2 * cols, dot * 2 * GLYPH_H)) {
-    val pitch = size.height / GLYPH_H
+fun DotMatrix(text: String, color: Color, dot: Dp = 3.dp, modifier: Modifier = Modifier, ghost: Color = Color.Transparent) {
+  val rows = List(GLYPH_H) { y -> text.map { ch -> GLYPHS[ch]?.get(y) ?: "....." }.joinToString(".") }
+  Dots(rows, color, dot, modifier, ghost)
+}
+
+/**
+ * A picture in dots, row by row: '#' lit, anything else unlit, drawn faintly in [ghost] as an old
+ * LCD shows its unlit dots.
+ */
+@Composable
+fun Dots(rows: List<String>, color: Color, dot: Dp = 3.dp, modifier: Modifier = Modifier, ghost: Color = Color.Transparent) {
+  val cols = rows.maxOfOrNull { it.length } ?: 0
+  Canvas(modifier.size(dot * 2 * cols, dot * 2 * rows.size)) {
+    val pitch = size.height / rows.size
     val r = pitch * 0.36f
-    var x0 = 0
-    for (ch in text) {
-      val rows = GLYPHS[ch]
-      if (rows != null) {
-        for ((y, row) in rows.withIndex()) {
-          for (x in 0 until GLYPH_W) {
-            if (row[x] == '#') drawCircle(color, r, Offset((x0 + x + 0.5f) * pitch, (y + 0.5f) * pitch))
-          }
-        }
+    for ((y, row) in rows.withIndex()) {
+      for (x in 0 until cols) {
+        val lit = row.getOrNull(x) == '#'
+        if (lit || ghost.alpha > 0f) drawCircle(if (lit) color else ghost, r, Offset((x + 0.5f) * pitch, (y + 0.5f) * pitch))
       }
-      x0 += GLYPH_W + 1
     }
   }
 }

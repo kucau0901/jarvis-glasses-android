@@ -77,14 +77,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import app.jarvis.glasses.JarvisApp
 import app.jarvis.glasses.conversation.Conversation as Talk
+import app.jarvis.glasses.glasses.shownGlasses
 import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.hub.Panel
 import app.jarvis.glasses.hub.PanelAction
 import app.jarvis.glasses.hub.PanelRow
 import app.jarvis.glasses.hub.Reading
 import app.jarvis.glasses.live.LiveVoice
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -131,7 +130,8 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
   var sheet by remember { mutableStateOf<String?>(null) }
   var can by remember { mutableStateOf<app.jarvis.glasses.hub.Can?>(null) }
   var loaded by remember { mutableStateOf(false) }
-  val connected by app.audio.connected.collectAsStateWithLifecycle()
+  val known by app.link.glasses.collectAsStateWithLifecycle()
+  val headset by app.audio.headset.collectAsStateWithLifecycle()
   val status by app.conversation.status.collectAsStateWithLifecycle()
   val liveState by app.live.state.collectAsStateWithLifecycle()
   var live by remember { mutableStateOf(app.prefs.live) }
@@ -327,7 +327,12 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
     }
   }
 
-  Box(Modifier.fillMaxSize().onGloballyPositioned { page.at = it }) {
+  // The title and the status panel stay put; the tiles scroll under them.
+  Column(Modifier.fillMaxSize()) {
+  Heading("Jarvis")
+  StatusPanel(shownGlasses(known, headset), statusText(status, liveState), Modifier.padding(horizontal = Even.gutter))
+  Spacer(Modifier.height(Even.gutter))
+  Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { page.at = it }) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         state = grid,
@@ -337,8 +342,6 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(Even.gutter),
         userScrollEnabled = held == null,
     ) {
-      item(key = "heading", span = { GridItemSpan(maxLineSpan) }) { Heading("Jarvis") }
-      item(key = "display", span = { GridItemSpan(maxLineSpan) }) { GlassesDisplay(connected = connected, now = statusText(status, liveState)) }
       // As the web app's orb: Talk starts, and the same tile stops what is going.
       val talking = status != Talk.Status.IDLE || liveState != LiveVoice.State.OFF
       item(key = "talk") {
@@ -426,6 +429,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
     }
   }
 
+  }
   val opened = sheet?.let { id -> cells.firstOrNull { it.id == id } }
   // A thing gone from its panel closes its sheet, so it can't open again by itself if it comes back.
   LaunchedEffect(opened == null) { if (opened == null) sheet = null }
@@ -710,33 +714,6 @@ private fun statusText(s: Talk.Status, live: LiveVoice.State): String =
       s == Talk.Status.SPEAKING -> "speaking"
       else -> "ready"
     }
-
-/** The glasses' display, as the Even app previews it: a dot-matrix clock and a line of status. */
-@Composable
-private fun GlassesDisplay(connected: Boolean, now: String) {
-  val c = Even.colors
-  var time by remember { mutableStateOf(LocalDateTime.now()) }
-  LaunchedEffect(Unit) {
-    while (true) {
-      time = LocalDateTime.now()
-      delay(15_000)
-    }
-  }
-  Box(Modifier.fillMaxWidth().clip(Even.corner).background(c.hud).padding(18.dp)) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Column(Modifier.weight(1f)) {
-        Text(time.format(DateTimeFormatter.ofPattern("EEE d")), style = MaterialTheme.typography.labelSmall, color = c.hudInk)
-        Spacer(Modifier.height(6.dp))
-        DotMatrix(time.format(DateTimeFormatter.ofPattern("HH:mm")), color = c.hudInk, dot = 2.5.dp)
-      }
-      Column(horizontalAlignment = Alignment.End) {
-        Text(if (connected) "Glasses connected" else "Glasses away", style = MaterialTheme.typography.labelSmall, color = c.hudInk)
-        Spacer(Modifier.height(4.dp))
-        Text("Jarvis: $now", style = MaterialTheme.typography.labelSmall, color = c.hudInk)
-      }
-    }
-  }
-}
 
 /** Talk, Jobs, Routines, Live voice: the same size as every other tile, as the Even app's. */
 @Composable
