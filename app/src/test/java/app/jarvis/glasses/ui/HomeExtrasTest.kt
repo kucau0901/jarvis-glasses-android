@@ -31,6 +31,44 @@ class HomeExtrasTest {
     assertEquals(0, sliderSteps(0.0, 1.0, 1.0))
   }
 
+  @Test fun aSliderStaysOnItsOwnStepsFromItsMin() {
+    assertEquals(1.5, onStep(1.7, -2.5, 2.5, 0.5), 1e-9)
+    assertEquals(-1.5, onStep(-1.7, -2.5, 2.5, 0.5), 1e-9)
+    assertEquals(5.0, sliderStart(1.0, 10.0, 2.0), 1e-9)
+    assertEquals(9.0, sliderTop(1.0, 10.0, 2.0), 1e-9)
+    assertEquals(9.0, onStep(10.0, 1.0, 10.0, 2.0), 1e-9)
+    assertEquals(3, sliderSteps(1.0, 10.0, 2.0))
+    assertEquals(9.0, sliderTop(0.0, 10.0, 3.0), 1e-9)
+    assertEquals(0.3, onStep(0.31, 0.0, 1.0, 0.1), 1e-9)
+  }
+
+  @Test fun numbersGoWithTheirStepsDecimalsAndAPoint() {
+    assertEquals("1.5", stepWords(1.5, 0.5))
+    assertEquals("150.5", stepWords(150.5, 0.5))
+    assertEquals("23.5", stepWords(23.5, 0.1))
+    assertEquals("24", stepWords(24.0, 0.1))
+    assertEquals("40", stepWords(40.0, 1.0))
+    assertEquals("0.3", stepWords(0.30000000000000004, 0.1))
+  }
+
+  @Test fun anAircondsNextSetPointStaysInItsRange() {
+    assertEquals(23.5, nextTemp(23.0, 0.5, 16.0, 30.0), 0.0)
+    assertEquals(30.0, nextTemp(30.0, 1.0, 16.0, 30.0), 0.0)
+    assertEquals(16.0, nextTemp(16.2, -1.0, 16.0, 30.0), 0.0)
+  }
+
+  @Test fun typedNumbersAreReadOrRefused() {
+    assertEquals(23.5, parseNumber("23.5")!!, 0.0)
+    assertEquals(23.5, parseNumber("23,5")!!, 0.0)
+    assertEquals(-5.0, parseNumber(" -5 ")!!, 0.0)
+    assertEquals(1000.0, parseNumber("1,000")!!, 0.0)
+    assertEquals(1000.0, parseNumber("1 000")!!, 0.0)
+    assertEquals(1234567.5, parseNumber("1,234,567.5")!!, 0.0)
+    assertEquals(null, parseNumber("1,0000"))
+    assertEquals(null, parseNumber("about 5"))
+    assertEquals(null, parseNumber(""))
+  }
+
   @Test fun modesAreSaidAsWords() {
     assertEquals("Fan only", pretty("fan_only"))
     assertEquals("Cool", pretty("cool"))

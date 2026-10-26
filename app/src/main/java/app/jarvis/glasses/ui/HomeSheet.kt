@@ -63,10 +63,19 @@ import kotlinx.coroutines.withContext
 /** A chart's last day is fetched again after this long, as on the web. */
 private const val HISTORY_MS = 5 * 60_000L
 
-/** Charts and maps already fetched while the app runs, so a sheet opened again draws at once. */
+/** Charts and maps already fetched while the app runs, so a sheet opened again draws at once: a few maps only, each a bitmap of some megabytes. */
 private object Kept {
   val histories = HashMap<String, Pair<Long, History>>()
-  val pictures = HashMap<String, ImageBitmap>()
+  val pictures =
+      object : android.util.LruCache<String, ImageBitmap>(12 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
+      }
+}
+
+/** Opens [uri] in whatever app takes it, or [instead] if none does (a phone with no maps app), never crashing. */
+internal fun android.content.Context.view(uri: String, instead: String? = null) {
+  runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri))) }
+      .recoverCatching { if (instead != null) startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(instead))) else throw it }
 }
 
 /** A line through [values], oldest first: the latest large, the low and high beside it, its two ends labelled. */
@@ -133,17 +142,21 @@ internal fun MapPicture(hub: Hub, lat: Double, lng: Double) {
   val c = Even.colors
   val context = LocalContext.current
   val path = Hub.mapPath(lat, lng)
-  var picture by remember(path) { mutableStateOf(Kept.pictures[path]) }
+  // Not keyed by place: as the car moves, the last map stays until the new one comes, so the sheet doesn't jump.
+  var picture by remember { mutableStateOf(Kept.pictures[path]) }
   LaunchedEffect(path) {
-    if (picture != null) return@LaunchedEffect
+    Kept.pictures[path]?.let {
+      picture = it
+      return@LaunchedEffect
+    }
     runCatching { hub.map(lat, lng) }
         .mapCatching { bytes -> withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)!!.asImageBitmap() } }
         .onSuccess {
-          Kept.pictures[path] = it
+          Kept.pictures.put(path, it)
           picture = it
         }
   }
-  val open = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:$lat,$lng?q=$lat,$lng"))) }
+  val open = { context.view("geo:$lat,$lng?q=$lat,$lng", instead = "https://maps.google.com/?q=$lat,$lng") }
   picture?.let {
     Image(it, contentDescription = "Map", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().aspectRatio(640f / 300f).clip(RoundedCornerShape(12.dp)).clickable(onClick = open))
   }
@@ -178,7 +191,10 @@ internal fun AlertMe(spec: AlertSpec, send: suspend (state: String?, value: Doub
     if (busy) return
     busy = true
     scope.launch {
-      reply = runCatching { send(state, value, condition) }.getOrElse { it.message ?: "That didn't work" }
+      reply =
+          runCatching { send(state, value, condition) }
+              .onSuccess { typed = "" } // as the web: what was sent goes, so a second tap doesn't make a second alert
+              .getOrElse { it.message ?: "That didn't work" }
       busy = false
     }
   }
@@ -197,7 +213,8 @@ internal fun AlertMe(spec: AlertSpec, send: suspend (state: String?, value: Doub
             { typed = it.take(12) },
             placeholder = { Text(spec.value?.let(::chartNumber) ?: "") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            // Text, not the number pad: many have no minus, and "below -5" is a fair alert.
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
             modifier = Modifier.width(110.dp),
         )
         Text(spec.unit, style = MaterialTheme.typography.bodySmall, color = c.dim)
@@ -205,7 +222,7 @@ internal fun AlertMe(spec: AlertSpec, send: suspend (state: String?, value: Doub
       Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         for ((label, way) in listOf("When above" to "above", "When below" to "below")) {
           SafePill(label, enabled = !busy) {
-            val v = typed.trim().replace(',', '.').toDoubleOrNull()
+            val v = parseNumber(typed)
             if (v == null) reply = "Type the number first." else go(way, v, null)
           }
         }
@@ -234,10 +251,12 @@ internal fun InputAction(action: PanelAction, enabled: Boolean, send: (String) -
     val max = input.max ?: 100.0
     val step = input.step?.takeIf { it > 0 } ?: 1.0
     var v by remember(action.action, min, max, step) { mutableFloatStateOf(sliderStart(min, max, step).toFloat()) }
+    // What Jarvis will set: on a step from min, with the step's decimals.
+    val chosen = stepWords(onStep(v.toDouble(), min, max, step), step)
     Text(action.label, style = MaterialTheme.typography.labelSmall, color = c.dim)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      Slider(value = v, onValueChange = { v = it }, valueRange = min.toFloat()..max.toFloat(), steps = sliderSteps(min, max, step), modifier = Modifier.weight(1f))
-      key(action.action) { SafePill("Set ${chartNumber(v.toDouble())}", enabled = enabled) { send(chartNumber(v.toDouble())) } }
+      Slider(value = v, onValueChange = { v = it }, valueRange = min.toFloat()..sliderTop(min, max, step).toFloat(), steps = sliderSteps(min, max, step), modifier = Modifier.weight(1f))
+      key(action.action) { SafePill("Set $chosen", enabled = enabled) { send(chosen) } }
     }
   } else {
     var typed by remember(action.action) { mutableStateOf("") }
@@ -257,11 +276,11 @@ internal fun InputAction(action: PanelAction, enabled: Boolean, send: (String) -
 
 /** Choices as pills, the chosen one filled, as the web's aircond modes and fan speeds. */
 @Composable
-internal fun Choices(title: String, options: List<String>, chosen: String?, pick: (String) -> Unit) {
+internal fun Choices(title: String, options: List<String>, chosen: String?, busy: (String) -> Boolean = { false }, pick: (String) -> Unit) {
   val c = Even.colors
   Text(title, style = MaterialTheme.typography.labelSmall, color = c.dim)
   FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-    for (o in options) key(o) { SafePill(pretty(o), selected = o == chosen) { pick(o) } }
+    for (o in options) key(o) { SafePill(pretty(o), enabled = !busy(o), selected = o == chosen) { pick(o) } }
   }
 }
 

@@ -41,7 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -86,6 +86,7 @@ import app.jarvis.glasses.live.LiveVoice
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -140,8 +141,9 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
   val page = remember { Place() }
   val held = mover.held
   val lifecycle = LocalLifecycleOwner.current.lifecycle
-  // Tile readings by "panel\nkey", kept across re-reads of the panels and moves.
-  val readings = remember { mutableStateMapOf<String, Got>() }
+  // Tile readings by "panel\nkey", kept across re-reads of the panels, moves and tab changes.
+  val readings = KeptReadings.readingsOf(app.prefs.token)
+  val pending = remember { mutableStateListOf<String>() }
   fun readingOf(panel: Panel, row: PanelRow): Reading? = if (row.read) readings["${panel.id}\n${row.key}"]?.reading else null
 
   /** Reads [row]'s tile if it is due (HomeReadings.kt): the kept reading, then a fresh one if that is stale. */
@@ -151,10 +153,10 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
     if (!due(readings[at], now)) return
     readings[at] = Got(readings[at]?.reading, now)
     scope.launch {
-      val kept = runCatching { app.hub.read(panel.id, row.key, cached = true) }.getOrElse { failedReading(it.message) }
+      val kept = runCatching { app.hub.read(panel.id, row.key, cached = true) }.getOrElse { if (it is CancellationException) throw it else failedReading(it.message) }
       readings[at] = Got(shown(readings[at]?.reading, kept), now)
       if (!kept.stale || kept.failed) return@launch
-      val fresh = runCatching { app.hub.read(panel.id, row.key, cached = false) }.getOrElse { failedReading(it.message) }
+      val fresh = runCatching { app.hub.read(panel.id, row.key, cached = false) }.getOrElse { if (it is CancellationException) throw it else failedReading(it.message) }
       readings[at] = Got(shown(readings[at]?.reading, fresh), askedAt(fresh, System.currentTimeMillis()))
     }
   }
@@ -178,15 +180,24 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
                 for (p in it.panels) for (r in p.rows) if (r.read) read(p, r)
               }
             }
-            .onFailure { problem = if (it is Hub.NotAPerson) "" else it.message ?: "Couldn't read the panels" }
+            .onFailure {
+              // A read cut short (the app went out of sight, or a press asked for a fresh one) is no error.
+              if (it is CancellationException) throw it
+              problem = if (it is Hub.NotAPerson) "" else it.message ?: "Couldn't read the panels"
+            }
         delay(20_000)
       }
     }
   }
 
   fun press(panel: Panel, row: PanelRow, action: String, member: String? = null, value: String? = null, code: String? = null) {
+    // One press at a time per button: its pill greys until Jarvis answers, so a slow one isn't sent twice.
+    val at = pressKey(panel, row, action, member)
+    if (at in pending) return
+    pending += at
     scope.launch {
       flash = runCatching { app.hub.act(panel.id, row.key, action, member, value, code) }.fold({ it }, { it.message ?: "That didn't work" })
+      pending -= at
       delay(1_500)
       refreshTick++
     }
@@ -367,6 +378,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
         GridCell(
             cell = cell,
             reading = (cell as? Cell.Thing)?.let { readingOf(it.panel, it.row) },
+            faceBusy = (cell as? Cell.Thing)?.let { t -> faceOf(t.row).button?.let { pressKey(t.panel, t.row, it.action, null) in pending } } == true,
             mover = mover,
             lifted = lifted,
             folded = held != null && held.thing == null,
@@ -422,7 +434,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
       Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         when (opened) {
           is Cell.Thing ->
-              ThingSheet(opened.panel, opened.row, readingOf(opened.panel, opened.row), app.hub, ::press) { state, value, condition ->
+              ThingSheet(opened.panel, opened.row, readingOf(opened.panel, opened.row), app.hub, ::press, { a, m -> pressKey(opened.panel, opened.row, a, m) in pending }) { state, value, condition ->
                 app.hub.alert(opened.panel.id, opened.row.key, state, value, condition).also {
                   scope.launch {
                     delay(1_500)
@@ -451,6 +463,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
 private fun LazyGridItemScope.GridCell(
     cell: Cell,
     reading: Reading?,
+    faceBusy: Boolean,
     mover: Mover,
     lifted: Boolean,
     folded: Boolean,
@@ -493,7 +506,7 @@ private fun LazyGridItemScope.GridCell(
     is Cell.Thing ->
         Box(where.then(moving).semantics { onClick("Open") { onTap(); true } }) {
           if (lifted) Box(Modifier.fillMaxWidth().aspectRatio(Even.tileAspect).dashedGap(c.line))
-          else ThingTile(cell.row, reading, Modifier, buttonsOn = mover.held == null) { press(cell.panel, cell.row, it.action, null, null, null) }
+          else ThingTile(cell.row, reading, Modifier, buttonsOn = mover.held == null && !faceBusy) { press(cell.panel, cell.row, it.action, null, null, null) }
         }
     is Cell.Notes -> NotesTile(cell, where, enabled = mover.held == null, more = more) { tick(cell.panel, it) }
   }
@@ -609,7 +622,15 @@ internal fun NoteLine(note: PanelRow, enabled: Boolean = true, tick: () -> Unit)
 
 /** All of a thing, on a tap of its tile: its name and state or reading in full, every button, and its controls. */
 @Composable
-private fun ThingSheet(panel: Panel, row: PanelRow, reading: Reading?, hub: Hub, press: Press, alert: suspend (String?, Double?, String?) -> String) {
+private fun ThingSheet(
+    panel: Panel,
+    row: PanelRow,
+    reading: Reading?,
+    hub: Hub,
+    press: Press,
+    busy: (action: String, member: String?) -> Boolean,
+    alert: suspend (String?, Double?, String?) -> String,
+) {
   val c = Even.colors
   Row(verticalAlignment = Alignment.CenterVertically) {
     Icon(HomeIcons.of(row.icon), contentDescription = null, tint = iconTint(row), modifier = Modifier.size(24.dp))
@@ -624,9 +645,9 @@ private fun ThingSheet(panel: Panel, row: PanelRow, reading: Reading?, hub: Hub,
   if (row.read) ReadingView(row, reading, hub)
   Figures(row.tiles)
   if (row.alerts.isNotEmpty()) Text("Alerts: " + row.alerts.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.tintOpen)
-  Buttons(row.actions.filter { it.input == null }) { press(panel, row, it.action, null, null, null) }
-  for (a in row.actions.filter { it.input != null }) key(a.action) { InputAction(a, enabled = true) { v -> press(panel, row, a.action, null, v, null) } }
-  More(panel, row, press)
+  Buttons(row.actions.filter { it.input == null }, { busy(it.action, null) }) { press(panel, row, it.action, null, null, null) }
+  for (a in row.actions.filter { it.input != null }) key(a.action) { InputAction(a, enabled = !busy(a.action, null)) { v -> press(panel, row, a.action, null, v, null) } }
+  More(panel, row, press, busy)
   val more = row.more ?: return
   if (more.history) HistoryChart(hub, panel.id, row.key)
   more.map?.let { MapPicture(hub, it.lat, it.lng) }
@@ -653,7 +674,7 @@ private fun ReadingView(row: PanelRow, reading: Reading?, hub: Hub) {
             "Source: " + (android.net.Uri.parse(url).host ?: url),
             style = MaterialTheme.typography.labelSmall,
             color = c.tintOpen,
-            modifier = Modifier.clickable { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) },
+            modifier = Modifier.clickable { context.view(url) },
         )
       }
     }
@@ -727,48 +748,65 @@ private fun QuickTile(icon: ImageVector, label: String, selected: Boolean = fals
 }
 
 @Composable
-private fun Buttons(actions: List<PanelAction>, onPress: (PanelAction) -> Unit) {
+private fun Buttons(actions: List<PanelAction>, busy: (PanelAction) -> Boolean = { false }, onPress: (PanelAction) -> Unit) {
   if (actions.isEmpty()) return
   FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-    for (a in actions) key(a.action) { SafePill(a.label) { onPress(a) } }
+    for (a in actions) key(a.action) { SafePill(a.label, enabled = !busy(a)) { onPress(a) } }
   }
 }
 
+/** Which press is on its way: a button of a thing (and of one of its room's lights). */
+private fun pressKey(panel: Panel, row: PanelRow, action: String, member: String?) = "${panel.id}\n${row.key}\n$action\n${member.orEmpty()}"
+
 /** A thing's controls, in its sheet: a room's lights, a slider, the thermostat, the alarm. */
 @Composable
-private fun More(panel: Panel, row: PanelRow, press: Press) {
+private fun More(panel: Panel, row: PanelRow, press: Press, busy: (action: String, member: String?) -> Boolean) {
   val more = row.more ?: return
   val c = Even.colors
   more.members?.forEach { m ->
     Row(verticalAlignment = Alignment.CenterVertically) {
       Text(m.label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-      Buttons(m.actions) { press(panel, row, it.action, m.key, null, null) }
+      Buttons(m.actions, { busy(it.action, m.key) }) { press(panel, row, it.action, m.key, null, null) }
     }
   }
   more.level?.let { lv ->
+    // On the thing's own steps, from its min, with their decimals: a number from -2.5 to 2.5 by 0.5 can be 1.5.
+    val step = lv.step.takeIf { it > 0 } ?: 1.0
     var v by remember(lv.value) { mutableFloatStateOf(lv.value.toFloat()) }
-    Text("${lv.name}: ${v.toInt()}${lv.unit}", style = MaterialTheme.typography.bodySmall, color = c.dim)
-    Slider(value = v, onValueChange = { v = it }, valueRange = lv.min.toFloat()..lv.max.toFloat(), onValueChangeFinished = { press(panel, row, "level:${v.toInt()}", null, null, null) })
+    val chosen = stepWords(onStep(v.toDouble(), lv.min, lv.max, step), step)
+    Text("${lv.name}: $chosen${lv.unit}", style = MaterialTheme.typography.bodySmall, color = c.dim)
+    // Sent when let go, as on the web.
+    Slider(
+        value = v,
+        onValueChange = { v = it },
+        valueRange = lv.min.toFloat()..sliderTop(lv.min, lv.max, step).toFloat(),
+        steps = sliderSteps(lv.min, lv.max, step),
+        onValueChangeFinished = { press(panel, row, "level:$chosen", null, null, null) },
+    )
   }
   more.climate?.let { cl ->
-    val target = cl.target ?: cl.now ?: cl.min
-    // As the web: no temperature to set while it is off.
-    if (cl.mode != "off") {
+    // As the web: a set point only when the unit has one (not in fan or dry mode, nor off), and only
+    // a press that changes it.
+    val t = cl.target?.takeIf { cl.mode != "off" }
+    if (t != null) {
       Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Buttons(listOf(PanelAction("temp:${fmt(target - cl.step)}", "−"))) { press(panel, row, it.action, null, null, null) }
-        Text("${fmt(target)}°", style = MaterialTheme.typography.titleMedium)
-        Buttons(listOf(PanelAction("temp:${fmt(target + cl.step)}", "+"))) { press(panel, row, it.action, null, null, null) }
-        cl.now?.let { Text("now ${fmt(it)}°", style = MaterialTheme.typography.bodySmall, color = c.dim) }
+        for ((label, by) in listOf("−" to -cl.step, "+" to cl.step)) {
+          val next = nextTemp(t, by, cl.min, cl.max)
+          if (label == "+") Text("${fmt(t)}°", style = MaterialTheme.typography.titleMedium)
+          if (next != t) Buttons(listOf(PanelAction("temp:${fmt(next)}", label)), { busy(it.action, null) }) { press(panel, row, it.action, null, null, null) }
+        }
       }
     }
-    if (cl.modes.isNotEmpty()) Choices("Mode", cl.modes, cl.mode) { press(panel, row, "mode:$it", null, null, null) }
-    if (cl.fans.isNotEmpty()) Choices("Fan", cl.fans, cl.fan) { press(panel, row, "fan:$it", null, null, null) }
+    cl.now?.let { Text("Now ${fmt(it)}°", style = MaterialTheme.typography.bodySmall, color = c.dim) }
+    if (cl.modes.isNotEmpty()) Choices("Mode", cl.modes, cl.mode, { busy("mode:$it", null) }) { press(panel, row, "mode:$it", null, null, null) }
+    if (cl.fans.isNotEmpty()) Choices("Fan", cl.fans, cl.fan, { busy("fan:$it", null) }) { press(panel, row, "fan:$it", null, null, null) }
   }
   more.actions?.let { acts ->
     var code by remember { mutableStateOf("") }
     if (more.code != null) OutlinedTextField(code, { code = it }, label = { Text("Code") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-    Buttons(acts) { a -> press(panel, row, a.action, null, null, code.takeIf { more.code?.forActions?.contains(a.action) == true }) }
+    Buttons(acts, { busy(it.action, null) }) { a -> press(panel, row, a.action, null, null, code.takeIf { more.code?.forActions?.contains(a.action) == true }) }
   }
 }
 
-private fun fmt(d: Double) = if (d % 1.0 == 0.0) d.toInt().toString() else "%.1f".format(d)
+/** A temperature to a tenth, with a point whatever the phone's language. */
+private fun fmt(d: Double) = stepWords(d, 0.1)

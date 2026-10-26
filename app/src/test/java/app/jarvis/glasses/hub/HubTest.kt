@@ -197,7 +197,7 @@ class HubTest {
                   {"key":"sensor.t","kind":"home","label":"Lounge","value":"24 °C","icon":"temp","active":false,"tiles":[],"actions":[],
                    "more":{"history":true,"alert":{"kind":"number","unit":"°C","value":24}}},
                   {"key":"car1","kind":"car","label":"Car","value":"300 km","icon":"car","active":false,"level":80,"tiles":[],"actions":[],
-                   "more":{"map":{"lat":1.5,"lng":103.7}}}]}],
+                   "more":{"map":{"lat":51.5007,"lng":-0.1246}}}]}],
                   "can":{"home":true,"car":true}}""",
             ),
     )
@@ -212,7 +212,7 @@ class HubTest {
     assertEquals(listOf("low", "high"), aircond.more!!.climate!!.fans)
     assertTrue(sensor.more!!.history)
     assertEquals(24.0, sensor.more!!.alert!!.value!!, 0.0)
-    assertEquals(103.7, car.more!!.map!!.lng, 0.0)
+    assertEquals(-0.1246, car.more!!.map!!.lng, 0.0)
     assertEquals(80.0, car.level!!, 0.0)
     assertTrue(reply.can!!.car)
   }
@@ -257,11 +257,11 @@ class HubTest {
 
   @Test
   fun aMapIsAskedForAsTheWebDoes() = runBlocking {
-    assertEquals("/api/map?kind=map&lat=1.50000&lng=103.70000&sv=3&w=640&h=300&zoom=15", Hub.mapPath(1.5, 103.7))
+    assertEquals("/api/map?kind=map&lat=51.50070&lng=-0.12460&sv=3&w=640&h=300&zoom=15", Hub.mapPath(51.5007, -0.1246))
     server.enqueue(MockResponse().setBody(okio.Buffer().write(byteArrayOf(1, 2, 3))))
-    assertEquals(3, hub.map(1.5, 103.7).size)
+    assertEquals(3, hub.map(51.5007, -0.1246).size)
     val req = server.takeRequest()
-    assertEquals("/api/map?kind=map&lat=1.50000&lng=103.70000&sv=3&w=640&h=300&zoom=15", req.path)
+    assertEquals("/api/map?kind=map&lat=51.50070&lng=-0.12460&sv=3&w=640&h=300&zoom=15", req.path)
     assertEquals("Bearer jss1_test", req.getHeader("Authorization"))
   }
 

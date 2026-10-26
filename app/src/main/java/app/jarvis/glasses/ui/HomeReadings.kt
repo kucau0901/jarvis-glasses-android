@@ -11,6 +11,23 @@ import java.time.format.DateTimeFormatter
 // open, or again in 20 s while Jarvis is still looking it up. Plain Kotlin, to be tested.
 
 internal const val READ_MS = 60_000L
+
+/**
+ * Readings kept while the app runs, for whoever is signed in, so going to Chat and back doesn't read
+ * every tile again at once (each read of a tool tile runs its tool on Jarvis).
+ */
+internal object KeptReadings {
+  private var owner = ""
+  private val readings = androidx.compose.runtime.mutableStateMapOf<String, Got>()
+
+  fun readingsOf(who: String): MutableMap<String, Got> {
+    if (who != owner) {
+      readings.clear()
+      owner = who
+    }
+    return readings
+  }
+}
 internal const val SOON_MS = 20_000L
 
 /** A tile's reading as last had, and when it was last asked for. */
@@ -23,7 +40,8 @@ internal fun due(got: Got?, now: Long): Boolean = got == null || now - got.asked
 internal fun shown(old: Reading?, new: Reading): Reading? =
     when {
       new.failed || new.text.isNotBlank() || new.figures.isNotEmpty() || new.list.isNotEmpty() -> new
-      new.pending -> (old ?: new).copy(text = old?.text?.takeIf { it.isNotBlank() } ?: "Looking it up…", pending = true)
+      // An error from before is not the reading being looked up now.
+      new.pending -> (old?.takeUnless { it.failed } ?: new).copy(text = old?.takeUnless { it.failed }?.text?.takeIf { it.isNotBlank() } ?: "Looking it up…", pending = true, failed = false)
       else -> old ?: new
     }
 

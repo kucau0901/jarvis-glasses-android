@@ -35,6 +35,12 @@ class HomeReadingsTest {
     assertTrue(shown(Reading(text = "Old"), failedReading("No"))!!.failed)
   }
 
+  @Test fun anOldErrorIsNotShownWhileItIsLookedUpAgain() {
+    val r = shown(failedReading("Could not look it up just now"), Reading(pending = true))!!
+    assertEquals("Looking it up…", r.text)
+    assertFalse(r.failed)
+  }
+
   @Test fun theFaceShowsTheReadingUpToThreeLines() {
     assertEquals("…", faceOf(tile()).status)
     val f = faceOf(tile(), Reading(text = "XYZ: 251.30 USD"))
