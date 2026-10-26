@@ -85,6 +85,18 @@ class GlassesLink(private val context: Context, private val scope: CoroutineScop
   }
 
   /**
+   * Ends the registration, so the app can register again: needed after moving from Developer Mode
+   * to a release channel, which the toolkit otherwise keeps as a Developer Mode registration.
+   */
+  fun unregister(activity: Activity) {
+    if (started) Wearables.startUnregistration(activity)
+  }
+
+  /** Whether the current registration is a Developer Mode one (no "Hey Meta" on Android). */
+  val devMode: Boolean
+    get() = started && Wearables.isDevMode
+
+  /**
    * A registration Meta AI starts itself (from its list of apps) arrives as an intent; it is
    * continued here. Anything else is ignored, so every intent can be passed.
    */

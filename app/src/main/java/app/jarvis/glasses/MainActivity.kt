@@ -140,7 +140,7 @@ class MainActivity : ComponentActivity() {
           item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
               Line("Glasses headset", if (connected) "connected" else "not connected")
-              Line("Meta AI", if (registered) "connected" else "not connected")
+              Line("Meta AI", if (!registered) "not connected" else if (app.link.devMode) "connected (developer mode)" else "connected")
               if (metaProblem.isNotEmpty()) Text("Meta AI: $metaProblem", style = MaterialTheme.typography.bodySmall)
               Line("Glasses camera", if (cameraAllowed) "allowed" else "not allowed")
               Line("Alerts", socket.name.lowercase())
@@ -203,7 +203,11 @@ class MainActivity : ComponentActivity() {
           item { Text("Glasses", style = MaterialTheme.typography.titleMedium) }
           item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-              OutlinedButton(onClick = { app.link.register(this@MainActivity) }) { Text("Connect Meta AI") }
+              if (registered) {
+                OutlinedButton(onClick = { app.link.unregister(this@MainActivity) }) { Text("Disconnect Meta AI") }
+              } else {
+                OutlinedButton(onClick = { app.link.register(this@MainActivity) }) { Text("Connect Meta AI") }
+              }
               OutlinedButton(onClick = { cameraPermission.launch(Permission.CAMERA) }, enabled = registered) { Text("Allow camera") }
             }
           }
