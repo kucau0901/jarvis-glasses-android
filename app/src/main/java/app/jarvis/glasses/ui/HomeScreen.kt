@@ -82,6 +82,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
   val status by app.conversation.status.collectAsStateWithLifecycle()
   val liveState by app.live.state.collectAsStateWithLifecycle()
   var live by remember { mutableStateOf(app.prefs.live) }
+  var opened by remember { mutableStateOf(emptySet<String>()) }
 
   // Re-read every 20 s while Home is in view, and soon after a press, as the web app does.
   LaunchedEffect(refreshTick) {
@@ -145,14 +146,33 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
           }
         }
       }
-      items(panel.rows.filter { it.kind != "note" }.chunked(2)) { pair ->
+      items(tileRows(panel.rows.filter { it.kind != "note" }) { "${panel.id}/${it.key}" in opened }) { pair ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          for (row in pair) PanelTile(panel, row, Modifier.weight(1f), ::press)
-          if (pair.size == 1) Spacer(Modifier.weight(1f))
+          for (row in pair) {
+            val id = "${panel.id}/${row.key}"
+            PanelTile(panel, row, id in opened, { opened = if (id in opened) opened - id else opened + id }, Modifier.weight(1f), ::press)
+          }
+          if (pair.size == 1 && "${panel.id}/${pair[0].key}" !in opened) Spacer(Modifier.weight(1f))
         }
       }
     }
   }
+}
+
+/** Tiles two to a row, in order, except an opened one, which takes the whole row for its controls. */
+internal fun tileRows(rows: List<PanelRow>, isOpen: (PanelRow) -> Boolean): List<List<PanelRow>> {
+  val out = mutableListOf<List<PanelRow>>()
+  val closed = mutableListOf<PanelRow>()
+  for (row in rows) {
+    if (!isOpen(row)) {
+      closed += row
+      continue
+    }
+    out += closed.chunked(2)
+    closed.clear()
+    out += listOf(row)
+  }
+  return out + closed.chunked(2)
 }
 
 private fun statusText(s: Talk.Status, live: LiveVoice.State): String =
@@ -202,10 +222,16 @@ private fun QuickTile(icon: ImageVector, label: String, modifier: Modifier, sele
 
 /** One panel row as an Even tile: icon, name, state, and its buttons; tap to open its controls. */
 @Composable
-private fun PanelTile(panel: Panel, row: PanelRow, modifier: Modifier, press: (Panel, PanelRow, String, String?, String?, String?) -> Unit) {
+private fun PanelTile(
+    panel: Panel,
+    row: PanelRow,
+    open: Boolean,
+    toggle: () -> Unit,
+    modifier: Modifier,
+    press: (Panel, PanelRow, String, String?, String?, String?) -> Unit,
+) {
   val c = Even.colors
-  var open by remember { mutableStateOf(false) }
-  Tile(modifier, onClick = if (row.more != null) ({ open = !open }) else null) {
+  Tile(modifier, onClick = if (row.more != null) toggle else null) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
       Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(iconFor(row.icon), contentDescription = null, tint = if (row.active) c.ink else c.dim, modifier = Modifier.size(22.dp))

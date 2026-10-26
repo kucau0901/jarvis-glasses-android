@@ -5,10 +5,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -55,12 +59,13 @@ enum class Tab(val label: String, val icon: ImageVector) {
   SETTINGS("Settings", Icons.Outlined.Settings),
 }
 
-/** Four tabs along the bottom, icons only, as the Even app does. */
+/** Four tabs along the bottom, icons only, as the Even app does; hidden while typing, so the page meets the keyboard. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun Shell(hooks: Hooks, home: @Composable () -> Unit, chat: @Composable () -> Unit, inbox: @Composable () -> Unit, settings: @Composable () -> Unit) {
   var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
   val c = Even.colors
-  Column(Modifier.fillMaxSize().background(c.page).statusBarsPadding()) {
+  Column(Modifier.fillMaxSize().background(c.page).statusBarsPadding().imePadding()) {
     Box(Modifier.weight(1f).fillMaxWidth()) {
       when (tab) {
         Tab.HOME -> home()
@@ -69,7 +74,7 @@ fun Shell(hooks: Hooks, home: @Composable () -> Unit, chat: @Composable () -> Un
         Tab.SETTINGS -> settings()
       }
     }
-    Row(
+    if (!WindowInsets.isImeVisible) Row(
         Modifier.fillMaxWidth().background(c.tile).navigationBarsPadding().height(60.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,

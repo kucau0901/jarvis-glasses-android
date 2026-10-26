@@ -11,9 +11,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -25,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +70,14 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
     if (person) runCatching { app.hub.conversation() }.onSuccess { said.clear(); said.addAll(it) }.onFailure { note = it.message ?: "" }
   }
   LaunchedEffect(said.size, busy) { if (said.isNotEmpty()) list.animateScrollToItem(said.size) }
+  // The keyboard shortens the list: keep its bottom where it was, as chat apps do.
+  LaunchedEffect(list) {
+    var was = 0
+    snapshotFlow { list.layoutInfo.viewportSize.height }.collect { h ->
+      if (h < was) list.scrollBy((was - h).toFloat())
+      was = h
+    }
+  }
 
   fun ask() {
     val q = text.trim()
@@ -99,7 +108,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
     }
   }
 
-  Column(Modifier.fillMaxSize().imePadding()) {
+  Column(Modifier.fillMaxSize()) {
     Box(Modifier.padding(horizontal = 12.dp)) { Heading("Chat") }
     LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       if (said.isEmpty()) item { Text("Ask Jarvis anything. Answers spoken in the glasses show up here too when you're signed in.", style = MaterialTheme.typography.bodyMedium, color = c.dim) }

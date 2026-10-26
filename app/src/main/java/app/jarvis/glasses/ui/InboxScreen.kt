@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -134,7 +133,7 @@ private fun ConversationPage(app: JarvisApp, convo: Convo, back: () -> Unit) {
     }
   }
   LaunchedEffect(messages.size) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size - 1) }
-  Column(Modifier.fillMaxSize().imePadding()) {
+  Column(Modifier.fillMaxSize()) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(4.dp)) {
       IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back") }
       Text(convo.title, style = MaterialTheme.typography.headlineSmall)
