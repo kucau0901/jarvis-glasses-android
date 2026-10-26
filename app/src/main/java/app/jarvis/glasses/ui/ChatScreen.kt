@@ -31,6 +31,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import app.jarvis.glasses.JarvisApp
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import app.jarvis.glasses.chat.Work
+import app.jarvis.glasses.hub.Named
 import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.hub.Link
 import app.jarvis.glasses.hub.Said
@@ -53,15 +62,22 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
   val drafts = remember { mutableStateListOf<Draft>() }
   var text by remember { mutableStateOf("") }
   var photo by remember { mutableStateOf<ByteArray?>(null) }
-  var busy by remember { mutableStateOf("") }
   var note by remember { mutableStateOf("") }
+  // The question being answered: Jarvis's work on it, as pills, and whether it has been read.
+  var work by remember { mutableStateOf<Work?>(null) }
+  var workRev by remember { mutableIntStateOf(0) }
+  var read by remember { mutableStateOf<String?>(null) }
+  // Answers that are notices (a limit reached) or failures, by id: drawn apart, never kept.
+  val kinds = remember { mutableStateMapOf<String, String>() }
+  val jobs = remember { mutableStateListOf<Named>() }
+  val busy = work != null
   val list = rememberLazyListState()
   val person = app.prefs.token.startsWith("jss1_")
 
   LaunchedEffect(person) {
     if (person) runCatching { app.hub.conversation() }.onSuccess { said.clear(); said.addAll(it) }.onFailure { note = it.message ?: "" }
   }
-  LaunchedEffect(said.size, busy) { if (said.isNotEmpty()) list.animateScrollToItem(said.size + 1) } // + the heading
+  LaunchedEffect(said.size, busy, workRev) { if (said.isNotEmpty()) list.animateScrollToItem(said.size + 1) } // + the heading
   // The keyboard shortens the list: keep its bottom where it was, as chat apps do.
   LaunchedEffect(list) {
     var was = 0
@@ -73,30 +89,51 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
 
   fun ask() {
     val q = text.trim()
-    if (q.isEmpty() || busy.isNotEmpty()) return
+    if (q.isEmpty() || busy) return
     val shot = photo
     text = ""
     photo = null
     val mine = Said(newId(), System.currentTimeMillis(), "user", q)
     said.add(mine)
-    busy = "…"
+    jobs.clear()
+    val w = Work()
+    work = w
     scope.launch {
       var answer: Said? = null
+      var kind = ""
+      var notice = ""
       runCatching {
             app.client.chat(Hub.transcript(said, System.currentTimeMillis()), shot) { ev ->
+              // The stream opened: Jarvis has the question ("Read", as Hark's chat says).
+              read = mine.id
               when (ev.str("type")) {
-                "progress" -> busy = ev.str("text")?.let { "$it…" } ?: busy
+                "tool" -> {
+                  w.tool(ev.str("name").orEmpty(), ev.str("id"), ev.str("phase").orEmpty())
+                  RESEARCH_CAP[ev.str("limit")]?.let { notice = it }
+                  workRev++
+                }
+                "progress" -> {
+                  w.note(ev.str("text").orEmpty(), ev.str("id") ?: ev.str("name"))
+                  workRev++
+                }
+                "job" -> ev.str("id")?.let { jobs.add(Named(it, ev.str("title").orEmpty())) }
                 "draft" -> drafts.add(Draft(ev.str("draft").orEmpty(), ev.str("to").orEmpty(), ev.str("subject").orEmpty(), ev.str("body").orEmpty()))
-                "result", "error" -> answer = Said(newId(), System.currentTimeMillis(), "assistant", ev.str("text").orEmpty(), links(ev))
+                "result" -> answer = Said(newId(), System.currentTimeMillis(), "assistant", ev.str("text").orEmpty(), links(ev))
+                "error" -> {
+                  answer = Said(newId(), System.currentTimeMillis(), "assistant", ev.str("text").orEmpty())
+                  kind = if (ev["limit"] != null) "limit" else "bad"
+                }
               }
             }
           }
-          .onFailure { answer = Said(newId(), System.currentTimeMillis(), "assistant", it.message ?: "Jarvis couldn't be reached.") }
-      busy = ""
-      answer?.let { a ->
-        said.add(a)
-        if (person) runCatching { app.hub.keep(listOf(mine, a)) }
-      }
+          .onFailure { answer = Said(newId(), System.currentTimeMillis(), "assistant", "Could not reach Jarvis: ${it.message}"); kind = "bad" }
+      work = null
+      val a = answer ?: Said(newId(), System.currentTimeMillis(), "assistant", "That ended without an answer. Try again.").also { kind = "bad" }
+      if (kind.isNotEmpty()) kinds[a.id] = kind
+      said.add(a)
+      if (notice.isNotEmpty()) Said(newId(), System.currentTimeMillis(), "assistant", notice).let { kinds[it.id] = "limit"; said.add(it) }
+      // What went wrong is not kept, as the web app does.
+      if (person && kind.isEmpty()) runCatching { app.hub.keep(listOf(mine, a)) }
     }
   }
 
@@ -111,11 +148,12 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
     ) {
       item { Heading("Chat") }
       if (said.isEmpty()) item { Text("Ask Jarvis anything. Answers spoken in the glasses show up here too when you're signed in.", style = MaterialTheme.typography.bodyMedium, color = h.dim) }
-      items(said, key = { it.id }) { s -> SaidRow(s) }
+      items(said, key = { it.id }) { s -> SaidRow(s, kinds[s.id], read = s.id == read) }
+      items(jobs, key = { it.id }) { j -> JobStarted(j) }
       items(drafts, key = { it.id }) { d ->
         DraftCard(d, onSend = { scope.launch { note = runCatching { app.client.sendDraft(d.id) }.fold({ "Sent." }, { it.message ?: "Not sent" }); drafts.remove(d) } }, onDrop = { drafts.remove(d) })
       }
-      if (busy.isNotEmpty()) item { WorkingPill(busy) }
+      work?.let { w -> item(key = "working") { workRev.let { WorkingRow(w) } } }
       if (note.isNotEmpty()) item { Text(note, style = MaterialTheme.typography.bodySmall, color = h.dim) }
     }
     Column(Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -124,7 +162,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
           text,
           { text = it },
           placeholder = "Message Jarvis",
-          canSend = busy.isEmpty(),
+          canSend = !busy,
           onSend = ::ask,
           lead = Icons.Outlined.Add to { hooks.pickPhoto { photo = it } },
           leadOn = photo != null,
@@ -134,17 +172,49 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
   }
 }
 
-/** One turn: the bubble, then any links as cards, and the job or routine it came from. */
+/**
+ * One turn: the bubble, then any links as cards, and the job or routine it came from. Jarvis's
+ * answers are drawn as the web app draws them; a limit is a quiet notice, a failure says so.
+ */
 @Composable
-private fun SaidRow(s: Said) {
+private fun SaidRow(s: Said, kind: String?, read: Boolean) {
   val h = Hark.colors
   val mine = s.role == "user"
+  if (kind == "limit") {
+    Text(s.text, style = MaterialTheme.typography.bodySmall, color = h.dim, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
+    return
+  }
   HarkBubble(mine) {
-    Text(s.text, style = MaterialTheme.typography.bodyLarge, color = h.ink)
+    when {
+      mine -> Text(s.text, style = MaterialTheme.typography.bodyLarge, color = h.ink)
+      kind == "bad" -> Text(s.text, style = MaterialTheme.typography.bodyLarge, color = Even.colors.danger)
+      else -> MarkdownText(s.text, h.ink, h.dim, h.bubbleYou)
+    }
     (s.job ?: s.routine)?.let { Text(it.name, style = MaterialTheme.typography.labelSmall, color = h.dim) }
   }
+  if (read) Text("Read", style = MaterialTheme.typography.labelSmall, color = h.dim, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth().padding(top = 3.dp, end = 6.dp))
   s.links?.forEach { l -> Box(Modifier.padding(top = 6.dp)) { LinkCard(l) } }
 }
+
+/** A background job this question started, as the web app shows one: its result comes later, in Jobs. */
+@Composable
+private fun JobStarted(j: Named) {
+  val h = Hark.colors
+  Row(
+      Modifier.clip(CircleShape).background(h.solid).padding(horizontal = 16.dp, vertical = 10.dp),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Icon(Glyphs.Jobs, contentDescription = null, tint = h.onSolid, modifier = Modifier.size(16.dp))
+    Text("  Job started: ${j.name}", style = MaterialTheme.typography.bodyMedium, color = h.onSolid, maxLines = 1, overflow = TextOverflow.Ellipsis)
+  }
+}
+
+/** What typed chat says when a research job met the month's cap, or research is off (lib/jobs.ts isResearchCap). */
+private val RESEARCH_CAP =
+    mapOf(
+        "research" to "This month's research jobs are used up: the limit is in Settings → OpenAI.",
+        "research-off" to "Research jobs are switched off: Settings → OpenAI → Research jobs a month.",
+    )
 
 @Composable
 private fun DraftCard(d: Draft, onSend: () -> Unit, onDrop: () -> Unit) {

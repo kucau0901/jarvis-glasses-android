@@ -69,7 +69,9 @@ fun JobsScreen(app: JarvisApp, back: () -> Unit) {
           Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(o.status, style = MaterialTheme.typography.labelLarge, color = c.dim)
             Text(o.task, style = MaterialTheme.typography.bodySmall, color = c.dim)
-            Text(o.result ?: o.error ?: o.summary ?: "Still working…", style = MaterialTheme.typography.bodyMedium)
+            val result = o.result
+            if (result != null) MarkdownText(result, c.ink, c.dim, c.chip)
+            else Text(o.error ?: o.summary ?: "Still working…", style = MaterialTheme.typography.bodyMedium, color = if (o.error != null) c.danger else c.ink)
             if (o.status == "running") OutlinedButton(onClick = { scope.launch { runCatching { app.hub.cancelJob(o.id) }; opened = null; tick++ } }) { Text("Cancel") }
           }
         }

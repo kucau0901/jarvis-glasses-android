@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,8 +40,8 @@ import app.jarvis.glasses.hub.Link
 
 /**
  * The Hark Pro app's chat, which the Jarvis web app's look comes from: a soft sky behind
- * everything, Jarvis in solid round bubbles on the left, you in glass ones on the right, what
- * Jarvis is doing in a dark pill, and a floating "Message" pill at the bottom. Colours follow the
+ * everything, Jarvis in solid round bubbles on the left, you in glass ones on the right, and a
+ * floating "Message" pill at the bottom. Colours follow the
  * web app's (index.html), light and dark. Used where people talk; the rest of the app stays Even.
  */
 @Immutable
@@ -121,22 +120,6 @@ fun HarkBubble(mine: Boolean, content: @Composable () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
       content()
-    }
-  }
-}
-
-/** What Jarvis is doing right now, as Hark shows a tool at work: a dark pill with a spinner. */
-@Composable
-fun WorkingPill(text: String) {
-  val h = Hark.colors
-  Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-    Row(
-        Modifier.clip(CircleShape).background(h.solid).padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-      CircularProgressIndicator(Modifier.size(14.dp), color = h.onSolid, strokeWidth = 2.dp)
-      Text(text, style = MaterialTheme.typography.bodyMedium, color = h.onSolid, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
   }
 }
