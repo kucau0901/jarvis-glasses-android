@@ -42,4 +42,8 @@ class MarkdownTest {
   }
 
   @Test fun onlyHttpsBecomesALink() = assertEquals(listOf(Span.Plain("[x](http://example.com)")), Markdown.spans("[x](http://example.com)"))
+
+  @Test
+  fun plainForANotification() =
+      assertEquals("Two things\n• **Call** the garage\n• See the form".replace("**", ""), Markdown.plain("## Two things\n- **Call** the garage\n- See [the form](https://example.com/f)"))
 }

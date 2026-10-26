@@ -114,6 +114,31 @@ object Markdown {
     return out
   }
 
+  /** An answer as plain lines, for where nothing can be drawn (a notification): bullets kept, marks dropped. */
+  fun plain(text: String): String =
+      blocks(text).joinToString("\n") { b ->
+        when (b) {
+          is Block.Heading -> words(b.text)
+          is Block.Para -> words(b.text)
+          is Block.Items -> b.items.mapIndexed { i, it -> (if (b.numbered) "${i + 1}. " else "• ") + words(it) }.joinToString("\n")
+          is Block.Table -> (listOf(b.head) + b.rows).joinToString("\n") { r -> r.joinToString(" · ") { words(it) } }
+          is Block.Code -> b.text
+          is Block.Quote -> words(b.text)
+          Block.Rule -> ""
+        }
+      }
+
+  private fun words(text: String) =
+      spans(text).joinToString("") {
+        when (it) {
+          is Span.Plain -> it.text
+          is Span.Bold -> it.text
+          is Span.Italic -> it.text
+          is Span.Mono -> it.text
+          is Span.Link -> it.label
+        }
+      }
+
   /** A line's words, with its bold, italic, code and links picked out. */
   fun spans(text: String): List<Span> {
     val out = mutableListOf<Span>()

@@ -43,7 +43,6 @@ import app.jarvis.glasses.hub.Named
 import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.hub.Link
 import app.jarvis.glasses.hub.Said
-import java.util.UUID
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -93,7 +92,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
     val shot = photo
     text = ""
     photo = null
-    val mine = Said(newId(), System.currentTimeMillis(), "user", q)
+    val mine = Said(Said.newId(), System.currentTimeMillis(), "user", q)
     said.add(mine)
     jobs.clear()
     val w = Work()
@@ -118,20 +117,20 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
                 }
                 "job" -> ev.str("id")?.let { jobs.add(Named(it, ev.str("title").orEmpty())) }
                 "draft" -> drafts.add(Draft(ev.str("draft").orEmpty(), ev.str("to").orEmpty(), ev.str("subject").orEmpty(), ev.str("body").orEmpty()))
-                "result" -> answer = Said(newId(), System.currentTimeMillis(), "assistant", ev.str("text").orEmpty(), links(ev))
+                "result" -> answer = Said(Said.newId(), System.currentTimeMillis(), "assistant", ev.str("text").orEmpty(), links(ev))
                 "error" -> {
-                  answer = Said(newId(), System.currentTimeMillis(), "assistant", ev.str("text").orEmpty())
+                  answer = Said(Said.newId(), System.currentTimeMillis(), "assistant", ev.str("text").orEmpty())
                   kind = if (ev["limit"] != null) "limit" else "bad"
                 }
               }
             }
           }
-          .onFailure { answer = Said(newId(), System.currentTimeMillis(), "assistant", "Could not reach Jarvis: ${it.message}"); kind = "bad" }
+          .onFailure { answer = Said(Said.newId(), System.currentTimeMillis(), "assistant", "Could not reach Jarvis: ${it.message}"); kind = "bad" }
       work = null
-      val a = answer ?: Said(newId(), System.currentTimeMillis(), "assistant", "That ended without an answer. Try again.").also { kind = "bad" }
+      val a = answer ?: Said(Said.newId(), System.currentTimeMillis(), "assistant", "That ended without an answer. Try again.").also { kind = "bad" }
       if (kind.isNotEmpty()) kinds[a.id] = kind
       said.add(a)
-      if (notice.isNotEmpty()) Said(newId(), System.currentTimeMillis(), "assistant", notice).let { kinds[it.id] = "limit"; said.add(it) }
+      if (notice.isNotEmpty()) Said(Said.newId(), System.currentTimeMillis(), "assistant", notice).let { kinds[it.id] = "limit"; said.add(it) }
       // What went wrong is not kept, as the web app does.
       if (person && kind.isEmpty()) runCatching { app.hub.keep(listOf(mine, a)) }
     }
@@ -231,7 +230,6 @@ private fun DraftCard(d: Draft, onSend: () -> Unit, onDrop: () -> Unit) {
   }
 }
 
-private fun newId() = "a" + UUID.randomUUID().toString().replace("-", "").take(20)
 
 private fun JsonObject.str(k: String) = (this[k] as? JsonPrimitive)?.contentOrNull
 

@@ -18,8 +18,9 @@ import okhttp3.WebSocketListener
 /**
  * Jarvis speaking first: the `/api/v1/events` WebSocket (docs/api.md, "Receiving them on a
  * socket"). An alert counts as delivered here only when this app acknowledges it as *visible*
- * within four seconds; otherwise Jarvis goes on to the phone's notifications. So [onAlert] answers
- * whether the glasses will say it, and only then is it acknowledged.
+ * within four seconds; otherwise Jarvis goes on to its other ways. So [onAlert] answers whether
+ * someone will get it (said in the glasses, or shown as a notification), and only then is it
+ * acknowledged.
  *
  * Reconnects with backoff while [start]ed; close code 4001 means the token was revoked, which stops
  * it for good.
@@ -110,7 +111,7 @@ class AlertSocket(
     start()
   }
 
-  /** Whether the glasses are on and connected, told to Jarvis as the screen's "presence". */
+  /** Whether this app can put an alert in front of someone, told to Jarvis as the screen's "presence". */
   fun setVisible(on: Boolean) {
     if (visible == on) return
     visible = on

@@ -9,6 +9,7 @@ import app.jarvis.glasses.jarvis.Address
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.AlertSocket
 import app.jarvis.glasses.jarvis.JarvisClient
+import app.jarvis.glasses.alerts.AlertNotifier
 import app.jarvis.glasses.hub.Admin
 import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.jarvis.Pairing
@@ -30,6 +31,7 @@ class JarvisApp : Application() {
   lateinit var alerts: AlertSocket
   lateinit var hub: Hub
   lateinit var admin: Admin
+  lateinit var notifier: AlertNotifier
   lateinit var pairing: Pairing
 
   override fun onCreate() {
@@ -43,9 +45,11 @@ class JarvisApp : Application() {
     alerts = AlertSocket(client, scope, ::onAlert)
     hub = Hub(client)
     admin = Admin(client)
+    notifier = AlertNotifier(this, client, hub, person = { prefs.token.startsWith("jss1_") }, scope)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
-    // Jarvis counts this app as a screen in front of someone only while the glasses are connected.
-    scope.launch { audio.connected.collect { alerts.setVisible(it) } }
+    // In front of someone: the glasses say an alert, or a notification shows it. Jarvis waits for
+    // this app's word only when it is, so without it every alert also went out by push.
+    scope.launch { audio.connected.collect { refreshPresence() } }
   }
 
   /**
@@ -65,15 +69,18 @@ class JarvisApp : Application() {
     )
   }
 
+  /** Tells Jarvis whether this app can put an alert in front of someone right now. */
+  fun refreshPresence() = alerts.setVisible(audio.connected.value || notifier.canShow())
+
   /**
    * Jarvis speaking first. Said in the glasses, then listened for a reply, when they are connected
-   * and nothing else is going; otherwise not acknowledged, so Jarvis carries on to the phone's
-   * notifications as it would without this app.
+   * and nothing else is going; otherwise a notification to reply to. Either way it is acknowledged
+   * as seen, so Jarvis doesn't also send it elsewhere; only when Android blocks this app's
+   * notifications does Jarvis carry on to its other ways.
    */
   private fun onAlert(alert: Alert): Boolean {
-    if (!prefs.speakAlerts || !alert.speak || !audio.connected.value) return false
-    if (live.state.value != LiveVoice.State.OFF) return false
-    return conversation.start(opening = alert)
+    val say = prefs.speakAlerts && alert.speak && audio.connected.value && live.state.value == LiveVoice.State.OFF
+    return (say && conversation.start(opening = alert)) || notifier.show(alert)
   }
 }
 

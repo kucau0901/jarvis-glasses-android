@@ -84,7 +84,12 @@ data class Said(
     val links: List<Link>? = null,
     val job: Named? = null,
     val routine: Named? = null,
-)
+) {
+  companion object {
+    /** A new turn's id, in the shape Jarvis keeps them. */
+    fun newId() = "a" + java.util.UUID.randomUUID().toString().replace("-", "").take(20)
+  }
+}
 
 @Serializable data class Link(val url: String, val title: String)
 

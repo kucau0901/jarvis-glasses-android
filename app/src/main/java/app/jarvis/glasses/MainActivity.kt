@@ -102,6 +102,8 @@ class MainActivity : ComponentActivity(), Hooks {
     super.onResume()
     refreshCamera()
     backgroundAllowed = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+    // Notifications may have been switched on or off in Android's settings meanwhile.
+    jarvis.refreshPresence()
   }
 
   private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
