@@ -1,9 +1,6 @@
 package app.jarvis.glasses.ui
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,16 +9,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,7 +29,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.jarvis.glasses.JarvisApp
 import app.jarvis.glasses.hub.Hub
@@ -55,7 +48,6 @@ private data class Draft(val id: String, val to: String, val subject: String, va
 /** Typing to Jarvis, as the web app's Chat tab: the same history when signed in as a person. */
 @Composable
 fun ChatScreen(app: JarvisApp, hooks: Hooks) {
-  val c = Even.colors
   val scope = rememberCoroutineScope()
   val said = remember { mutableStateListOf<Said>() }
   val drafts = remember { mutableStateListOf<Draft>() }
@@ -69,7 +61,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
   LaunchedEffect(person) {
     if (person) runCatching { app.hub.conversation() }.onSuccess { said.clear(); said.addAll(it) }.onFailure { note = it.message ?: "" }
   }
-  LaunchedEffect(said.size, busy) { if (said.isNotEmpty()) list.animateScrollToItem(said.size) }
+  LaunchedEffect(said.size, busy) { if (said.isNotEmpty()) list.animateScrollToItem(said.size + 1) } // + the heading
   // The keyboard shortens the list: keep its bottom where it was, as chat apps do.
   LaunchedEffect(list) {
     var was = 0
@@ -108,63 +100,62 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
     }
   }
 
-  Column(Modifier.fillMaxSize()) {
-    Box(Modifier.padding(horizontal = 12.dp)) { Heading("Chat") }
-    LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      if (said.isEmpty()) item { Text("Ask Jarvis anything. Answers spoken in the glasses show up here too when you're signed in.", style = MaterialTheme.typography.bodyMedium, color = c.dim) }
-      items(said, key = { it.id }) { s -> Bubble(s) }
+  SkyBehind()
+  val h = Hark.colors
+  Box(Modifier.fillMaxSize()) {
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        state = list,
+        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 4.dp, bottom = if (photo != null) 128.dp else 84.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      item { Heading("Chat") }
+      if (said.isEmpty()) item { Text("Ask Jarvis anything. Answers spoken in the glasses show up here too when you're signed in.", style = MaterialTheme.typography.bodyMedium, color = h.dim) }
+      items(said, key = { it.id }) { s -> SaidRow(s) }
       items(drafts, key = { it.id }) { d ->
         DraftCard(d, onSend = { scope.launch { note = runCatching { app.client.sendDraft(d.id) }.fold({ "Sent." }, { it.message ?: "Not sent" }); drafts.remove(d) } }, onDrop = { drafts.remove(d) })
       }
-      if (busy.isNotEmpty()) item { Text(busy, style = MaterialTheme.typography.bodySmall, color = c.dim) }
-      if (note.isNotEmpty()) item { Text(note, style = MaterialTheme.typography.bodySmall, color = c.dim) }
+      if (busy.isNotEmpty()) item { WorkingPill(busy) }
+      if (note.isNotEmpty()) item { Text(note, style = MaterialTheme.typography.bodySmall, color = h.dim) }
     }
-    Row(Modifier.fillMaxWidth().background(c.tile).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-      IconButton(onClick = { hooks.pickPhoto { photo = it } }) {
-        Icon(Glyphs.Camera, contentDescription = "Add a photo", tint = if (photo != null) c.on else c.dim)
-      }
-      OutlinedTextField(text, { text = it }, placeholder = { Text("Message Jarvis") }, modifier = Modifier.weight(1f), maxLines = 4)
-      IconButton(onClick = ::ask, enabled = text.isNotBlank() && busy.isEmpty()) { Icon(Glyphs.Send, contentDescription = "Send", tint = c.ink) }
+    Column(Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      if (photo != null) HarkButton("Photo added · remove", solid = false) { photo = null }
+      MessagePill(
+          text,
+          { text = it },
+          placeholder = "Message Jarvis",
+          canSend = busy.isEmpty(),
+          onSend = ::ask,
+          lead = Icons.Outlined.Add to { hooks.pickPhoto { photo = it } },
+          leadOn = photo != null,
+          mic = hooks::talk,
+      )
     }
   }
 }
 
+/** One turn: the bubble, then any links as cards, and the job or routine it came from. */
 @Composable
-private fun Bubble(s: Said) {
-  val c = Even.colors
-  val ctx = LocalContext.current
+private fun SaidRow(s: Said) {
+  val h = Hark.colors
   val mine = s.role == "user"
-  Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
-    Column(
-        Modifier.widthIn(max = 320.dp).clip(Even.corner).background(if (mine) c.chip else c.tile).padding(horizontal = 12.dp, vertical = 9.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-      Text(s.text, style = MaterialTheme.typography.bodyMedium)
-      s.links?.forEach { l ->
-        Text(
-            l.title.ifEmpty { l.url },
-            style = MaterialTheme.typography.bodySmall,
-            color = c.dim,
-            modifier = Modifier.clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(l.url))) },
-        )
-      }
-      (s.job ?: s.routine)?.let { Text(it.name, style = MaterialTheme.typography.labelSmall, color = c.dim) }
-    }
+  HarkBubble(mine) {
+    Text(s.text, style = MaterialTheme.typography.bodyLarge, color = h.ink)
+    (s.job ?: s.routine)?.let { Text(it.name, style = MaterialTheme.typography.labelSmall, color = h.dim) }
   }
+  s.links?.forEach { l -> Box(Modifier.padding(top = 6.dp)) { LinkCard(l) } }
 }
 
 @Composable
 private fun DraftCard(d: Draft, onSend: () -> Unit, onDrop: () -> Unit) {
-  val c = Even.colors
-  Tile(Modifier.fillMaxWidth()) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-      Text("Email to ${d.to}", style = MaterialTheme.typography.labelLarge)
-      Text(d.subject, style = MaterialTheme.typography.bodyMedium)
-      Text(d.body, style = MaterialTheme.typography.bodySmall, color = c.dim, maxLines = 6)
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = onSend) { Text("Send") }
-        OutlinedButton(onClick = onDrop) { Text("Not now") }
-      }
+  val h = Hark.colors
+  Column(Modifier.fillMaxWidth().clip(Hark.bubble).background(h.bubble).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Text("Email to ${d.to}", style = MaterialTheme.typography.labelLarge, color = h.dim)
+    Text(d.subject, style = MaterialTheme.typography.bodyLarge, color = h.ink)
+    Text(d.body, style = MaterialTheme.typography.bodyMedium, color = h.dim, maxLines = 6)
+    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      HarkButton("Send", solid = true, onClick = onSend)
+      HarkButton("Not now", solid = false, onClick = onDrop)
     }
   }
 }

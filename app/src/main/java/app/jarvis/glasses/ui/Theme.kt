@@ -117,7 +117,12 @@ fun EvenTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> 
       )
   MaterialTheme(colorScheme = scheme, typography = type) {
     // Text and icons take the page's ink unless told otherwise, in light and dark alike.
-    androidx.compose.runtime.CompositionLocalProvider(LocalEven provides c, androidx.compose.material3.LocalContentColor provides c.ink, content = content)
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalEven provides c,
+        LocalHark provides if (dark) DarkHark else LightHark,
+        androidx.compose.material3.LocalContentColor provides c.ink,
+        content = content,
+    )
   }
 }
 

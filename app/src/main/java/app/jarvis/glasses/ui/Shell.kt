@@ -23,8 +23,10 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,6 +52,9 @@ interface Hooks {
   val cameraAllowed: Boolean
 
   val backgroundAllowed: Boolean
+
+  /** "system", "light" or "dark"; setting it restyles the app at once. */
+  var theme: String
 }
 
 enum class Tab(val label: String, val icon: ImageVector) {
@@ -65,13 +70,16 @@ enum class Tab(val label: String, val icon: ImageVector) {
 fun Shell(hooks: Hooks, home: @Composable () -> Unit, chat: @Composable () -> Unit, inbox: @Composable () -> Unit, settings: @Composable () -> Unit) {
   var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
   val c = Even.colors
-  Column(Modifier.fillMaxSize().background(c.page).statusBarsPadding().imePadding()) {
+  val sky = remember { mutableStateOf(false) }
+  Column(Modifier.fillMaxSize().let { if (sky.value) it.sky(Hark.colors) else it.background(c.page) }.statusBarsPadding().imePadding()) {
     Box(Modifier.weight(1f).fillMaxWidth()) {
-      when (tab) {
-        Tab.HOME -> home()
-        Tab.CHAT -> chat()
-        Tab.INBOX -> inbox()
-        Tab.SETTINGS -> settings()
+      CompositionLocalProvider(LocalSky provides sky) {
+        when (tab) {
+          Tab.HOME -> home()
+          Tab.CHAT -> chat()
+          Tab.INBOX -> inbox()
+          Tab.SETTINGS -> settings()
+        }
       }
     }
     if (!WindowInsets.isImeVisible) Row(

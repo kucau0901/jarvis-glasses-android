@@ -36,6 +36,8 @@ import kotlinx.coroutines.launch
 /** Setting up: which Jarvis and how the app signs in, the glasses, and how it talks. */
 @Composable
 fun SettingsScreen(app: JarvisApp, hooks: Hooks) {
+  var jarvisPage by remember { mutableStateOf(false) }
+  if (jarvisPage) return JarvisSettings(app, back = { jarvisPage = false })
   val connected by app.audio.connected.collectAsStateWithLifecycle()
   val registered by app.link.registered.collectAsStateWithLifecycle()
   val metaProblem by app.link.problem.collectAsStateWithLifecycle()
@@ -176,6 +178,20 @@ fun SettingsScreen(app: JarvisApp, hooks: Hooks) {
           Text(check, style = MaterialTheme.typography.bodySmall, color = Even.colors.dim)
         }
         Line("Alerts", socket.name.lowercase())
+      }
+    }
+
+    if (app.prefs.token.startsWith("jss1_")) {
+      item { SectionRow("Jarvis settings", "") { jarvisPage = true } }
+    }
+
+    item {
+      Section("Theme") {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+          for ((key, label) in listOf("system" to "System", "light" to "Light", "dark" to "Dark")) {
+            FilterChip(selected = hooks.theme == key, onClick = { hooks.theme = key }, label = { Text(label) })
+          }
+        }
       }
     }
 

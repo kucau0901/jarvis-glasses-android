@@ -8,11 +8,15 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.graphics.Color
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -42,6 +46,15 @@ class MainActivity : ComponentActivity(), Hooks {
   override var backgroundAllowed by mutableStateOf(true)
     private set
 
+  private var chosenTheme by mutableStateOf("system")
+
+  override var theme: String
+    get() = chosenTheme
+    set(v) {
+      chosenTheme = v
+      jarvis.prefs.theme = v
+    }
+
   private var onPhoto: ((ByteArray) -> Unit)? = null
 
   private val phonePermissions =
@@ -58,8 +71,15 @@ class MainActivity : ComponentActivity(), Hooks {
     enableEdgeToEdge()
     phonePermissions.launch(PHONE_PERMISSIONS)
     if (savedInstanceState == null && isVoiceInvocationsIntent(intent)) onHeyMeta()
+    chosenTheme = jarvis.prefs.theme
     setContent {
-      EvenTheme {
+      val dark = if (theme == "system") isSystemInDarkTheme() else theme == "dark"
+      LaunchedEffect(dark) {
+        // Status bar icons follow the app's theme, not the phone's.
+        val bars = if (dark) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+        enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+      }
+      EvenTheme(dark) {
         Shell(
             this,
             home = { HomeScreen(jarvis, this) },

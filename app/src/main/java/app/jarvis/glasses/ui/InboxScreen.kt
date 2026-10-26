@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -20,7 +19,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -132,37 +130,43 @@ private fun ConversationPage(app: JarvisApp, convo: Convo, back: () -> Unit) {
       delay(4_000)
     }
   }
-  LaunchedEffect(messages.size) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size - 1) }
-  Column(Modifier.fillMaxSize()) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(4.dp)) {
-      IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back") }
-      Text(convo.title, style = MaterialTheme.typography.headlineSmall)
-    }
-    LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+  LaunchedEffect(messages.size) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size) }
+  SkyBehind()
+  val h = Hark.colors
+  Box(Modifier.fillMaxSize()) {
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        state = list,
+        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 84.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      item {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+          IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = h.ink) }
+          Text(convo.title, style = MaterialTheme.typography.headlineSmall, color = h.ink)
+        }
+      }
       items(messages, key = { it.id }) { m ->
         val mine = m.from == you
-        Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
-          Column(Modifier.widthIn(max = 300.dp).clip(Even.corner).background(if (mine) c.chip else c.tile).padding(horizontal = 12.dp, vertical = 8.dp)) {
-            if (!mine) Text(m.name, style = MaterialTheme.typography.labelSmall, color = c.dim)
-            Text(m.text, style = MaterialTheme.typography.bodyMedium)
-          }
+        HarkBubble(mine) {
+          if (!mine) Text(m.name, style = MaterialTheme.typography.labelSmall, color = h.dim)
+          Text(m.text, style = MaterialTheme.typography.bodyLarge, color = h.ink)
         }
       }
       if (note.isNotEmpty()) item { Text(note, style = MaterialTheme.typography.bodySmall, color = c.danger) }
     }
-    Row(Modifier.fillMaxWidth().background(c.tile).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-      OutlinedTextField(text, { text = it }, placeholder = { Text("Message") }, modifier = Modifier.weight(1f), maxLines = 4)
-      IconButton(
-          enabled = text.isNotBlank(),
-          onClick = {
-            val t = text.trim()
-            text = ""
-            scope.launch { runCatching { app.hub.send(convo.id, t) }.onSuccess { m -> if (messages.none { it.id == m.id }) messages.add(m) }.onFailure { note = it.message ?: "" } }
-          },
-      ) {
-        Icon(Glyphs.Send, contentDescription = "Send", tint = c.ink)
-      }
-    }
+    MessagePill(
+        text,
+        { text = it },
+        placeholder = "Message",
+        canSend = true,
+        onSend = {
+          val t = text.trim()
+          text = ""
+          scope.launch { runCatching { app.hub.send(convo.id, t) }.onSuccess { m -> if (messages.none { it.id == m.id }) messages.add(m) }.onFailure { note = it.message ?: "" } }
+        },
+        modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 10.dp),
+    )
   }
 }
 

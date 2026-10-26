@@ -9,6 +9,7 @@ import app.jarvis.glasses.jarvis.Address
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.AlertSocket
 import app.jarvis.glasses.jarvis.JarvisClient
+import app.jarvis.glasses.hub.Admin
 import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.jarvis.Pairing
 import app.jarvis.glasses.live.LiveVoice
@@ -28,6 +29,7 @@ class JarvisApp : Application() {
   lateinit var live: LiveVoice
   lateinit var alerts: AlertSocket
   lateinit var hub: Hub
+  lateinit var admin: Admin
   lateinit var pairing: Pairing
 
   override fun onCreate() {
@@ -40,6 +42,7 @@ class JarvisApp : Application() {
     live = LiveVoice(this, client, audio, scope, quietMs = { prefs.liveQuietSeconds * 1000L })
     alerts = AlertSocket(client, scope, ::onAlert)
     hub = Hub(client)
+    admin = Admin(client)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
     // Jarvis counts this app as a screen in front of someone only while the glasses are connected.
     scope.launch { audio.connected.collect { alerts.setVisible(it) } }
@@ -103,6 +106,11 @@ class Prefs(context: Context) {
   var liveQuietSeconds: Int
     get() = p.getInt("liveQuietSeconds", 10)
     set(v) = p.edit().putInt("liveQuietSeconds", v).apply()
+
+  /** "system", "light" or "dark": the app's look, chosen in Settings. */
+  var theme: String
+    get() = p.getString("theme", "system").orEmpty()
+    set(v) = p.edit().putString("theme", v).apply()
 
   /** Say Jarvis's alerts in the glasses and listen for a reply. */
   var speakAlerts: Boolean
