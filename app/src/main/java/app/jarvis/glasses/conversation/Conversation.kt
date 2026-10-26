@@ -130,8 +130,8 @@ class Conversation(
           break
         }
         if (Phrases.isStop(heard)) break
-        // The launch phrase said again: keep listening, ask nothing.
-        if (Phrases.isLaunchPhrase(heard)) continue
+        // The launch phrase said again, or a bare "okay": keep listening, ask nothing.
+        if (Phrases.isLaunchPhrase(heard) || Phrases.isAck(heard)) continue
         val photo = if (Phrases.wantsPhoto(heard)) eyes.photo() else null
         if (photo == null && Phrases.wantsPhoto(heard)) _note.value = "No photo: the glasses camera isn't available"
         answer(heard, photo)

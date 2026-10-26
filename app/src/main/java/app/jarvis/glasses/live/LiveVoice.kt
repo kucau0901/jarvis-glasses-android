@@ -1,6 +1,7 @@
 package app.jarvis.glasses.live
 
 import android.content.Context
+import android.util.Log
 import app.jarvis.glasses.audio.GlassesAudio
 import app.jarvis.glasses.jarvis.JarvisClient
 import app.jarvis.glasses.jarvis.Turn
@@ -66,7 +67,13 @@ class LiveVoice(
   @Synchronized
   fun start(history: List<Turn>, onFail: () -> Unit, onEnd: (List<Turn>) -> Unit): Boolean {
     if (job?.isActive == true) return false
-    job = scope.launch { run(history, { why -> _note.value = why; onFail() }, onEnd) }
+    job = scope.launch {
+      run(history, { why ->
+        Log.w(TAG, "could not open: $why")
+        _note.value = why
+        onFail()
+      }, onEnd)
+    }
     return true
   }
 
@@ -119,7 +126,10 @@ class LiveVoice(
 
             override fun onStateChange() {
               when (channel.state()) {
-                DataChannel.State.OPEN -> _state.value = State.LIVE
+                DataChannel.State.OPEN -> {
+                  Log.i(TAG, "live")
+                  _state.value = State.LIVE
+                }
                 DataChannel.State.CLOSED -> ended.complete(Unit)
                 else -> Unit
               }
@@ -137,6 +147,7 @@ class LiveVoice(
       peer.setLocal(offer)
       // Everything in one offer: the Worker forwards it once.
       withTimeoutOrNull(3_000) { gathered.await() }
+      Log.i(TAG, "offer ready, asking Jarvis for a session")
       val answer = client.liveSession(peer.localDescription.description, history)
       peer.setRemote(SessionDescription(SessionDescription.Type.ANSWER, answer))
       openedAt = System.currentTimeMillis()
@@ -150,6 +161,7 @@ class LiveVoice(
       }
       ended.await()
       watch.cancel()
+      Log.i(TAG, "ended after ${(System.currentTimeMillis() - openedAt) / 1000} s")
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
@@ -180,6 +192,7 @@ class LiveVoice(
           }
 
   companion object {
+    private const val TAG = "LiveVoice"
     const val QUIET_MS = 30_000L
     const val WORKING_MS = 120_000L
   }

@@ -82,6 +82,37 @@ object Phrases {
     return LOOK.any { t.contains(" $it ") }
   }
 
+  private val ACK =
+      setOf(
+          "ok",
+          "okay",
+          "okay okay",
+          "alright",
+          "all right",
+          "right",
+          "i see",
+          "aha",
+          "ah",
+          "uh huh",
+          "mm",
+          "hmm",
+          "mhm",
+          "good",
+          "great",
+          "nice",
+          "cool",
+          "got it",
+          "ага", // "aha", heard as Russian
+          // Malay
+          "oh",
+          "ok lah",
+          "baik",
+          "faham",
+      )
+
+  /** A bare acknowledgement after an answer: keep listening, ask nothing ("Okay." re-asked the last question). */
+  fun isAck(heard: String): Boolean = normalise(heard) in ACK
+
   /**
    * "Hey Meta, open Jarvis" heard by Jarvis itself, said again during a conversation: not a question
    * (the recogniser often hears "hi" or "a" for "hey").
