@@ -190,6 +190,14 @@ class ConversationTest {
   }
 
   @Test
+  fun theLaunchPhraseSaidAgainIsNotAsked() = runTest {
+    val brain = FakeBrain()
+    conversation(FakeEars("How are you?", "Hi Meta, open Jarvis.", "what's the time"), FakeMouth(), brain).start()
+    advanceUntilIdle()
+    assertEquals(listOf("How are you?", "what's the time"), brain.asked.map { it.first })
+  }
+
+  @Test
   fun phrases() {
     assertTrue(Phrases.wantsPhoto("Jarvis, what's this?"))
     assertTrue(Phrases.wantsPhoto("Apa ni?"))
@@ -198,5 +206,9 @@ class ConversationTest {
     assertTrue(Phrases.isStop("Thanks!"))
     assertTrue(Phrases.isStop("ok, terima kasih"))
     assertFalse(Phrases.isStop("thanks, and what's the weather"))
+    assertTrue(Phrases.isLaunchPhrase("Hey Meta, open the Jarvis app"))
+    assertTrue(Phrases.isLaunchPhrase("Hi Meta, open Jarvis."))
+    assertFalse(Phrases.isLaunchPhrase("open jarvis settings on the car"))
+    assertFalse(Phrases.isLaunchPhrase("what does meta mean"))
   }
 }

@@ -82,6 +82,15 @@ object Phrases {
     return LOOK.any { t.contains(" $it ") }
   }
 
+  /**
+   * "Hey Meta, open Jarvis" heard by Jarvis itself, said again during a conversation: not a question
+   * (the recogniser often hears "hi" or "a" for "hey").
+   */
+  fun isLaunchPhrase(heard: String): Boolean {
+    val t = normalise(heard)
+    return t.contains("meta") && Regex("\\b(open|start|launch)( the)? jarvis\\b").containsMatchIn(t)
+  }
+
   /** Only a short utterance that is wholly a closing: "thanks, and what's the weather" is a question. */
   fun isStop(heard: String): Boolean = normalise(heard) in STOP
 

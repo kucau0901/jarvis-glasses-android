@@ -17,10 +17,12 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import app.jarvis.glasses.conversation.Ears
 import app.jarvis.glasses.conversation.Mouth
 import java.io.ByteArrayOutputStream
 import java.io.File
+import kotlin.math.abs
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -121,6 +123,7 @@ class GlassesAudio(context: Context) : Ears, Mouth {
         val buf = ShortArray(RATE / 50) // 20 ms
         val bytes = ByteArray(buf.size * 2)
         var verdict = SpeechGate.Verdict.LISTENING
+        var loudest = 0
         try {
           record.startRecording()
           while (isActive && verdict == SpeechGate.Verdict.LISTENING) {
@@ -130,6 +133,7 @@ class GlassesAudio(context: Context) : Ears, Mouth {
             for (i in 0 until n) {
               bytes[2 * i] = (buf[i].toInt() and 0xff).toByte()
               bytes[2 * i + 1] = (buf[i].toInt() shr 8).toByte()
+              loudest = maxOf(loudest, abs(buf[i].toInt()))
             }
             pcm.write(bytes, 0, n * 2)
             verdict = gate.feed(buf, n)
@@ -137,6 +141,9 @@ class GlassesAudio(context: Context) : Ears, Mouth {
         } finally {
           runCatching { record.stop() }
           record.release()
+          // How a turn ended, and how loud the glasses' microphone got: tells "nobody spoke" from
+          // "spoke, but too quietly to count".
+          Log.i(TAG, "listen: $verdict, ${pcm.size() / 2 / (RATE / 1000)} ms, loudest $loudest, from ${record.routedDevice?.productName}")
         }
         if (verdict == SpeechGate.Verdict.DONE) Wav.wrap(pcm.toByteArray(), RATE) else null
       }
@@ -216,6 +223,7 @@ class GlassesAudio(context: Context) : Ears, Mouth {
   companion object {
     /** Speech recognition wants 16 kHz; HFP carries 8 or 16 and Android converts. */
     const val RATE = 16_000
+    private const val TAG = "GlassesAudio"
     private val GLASSES = Regex("ray-?ban|meta|oakley", RegexOption.IGNORE_CASE)
     private val SPEECH =
         AudioAttributes.Builder()
