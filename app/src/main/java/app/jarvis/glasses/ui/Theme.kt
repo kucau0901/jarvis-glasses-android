@@ -84,6 +84,12 @@ object Even {
     @Composable get() = LocalEven.current
 
   val corner = RoundedCornerShape(6.dp)
+
+  /** The space around and between the Even app's Home tiles. */
+  val gutter = 6.dp
+
+  /** Width over height of the Even app's Home tiles (215 × 171 dp on a 448 dp wide phone). */
+  const val tileAspect = 215.3f / 171f
 }
 
 @Composable

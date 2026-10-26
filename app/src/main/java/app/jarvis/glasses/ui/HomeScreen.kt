@@ -1,10 +1,12 @@
 package app.jarvis.glasses.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,11 +14,19 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridItemScope
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Email
@@ -25,24 +35,45 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LocalPinnableContainer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.jarvis.glasses.JarvisApp
@@ -54,8 +85,11 @@ import app.jarvis.glasses.hub.PanelRow
 import app.jarvis.glasses.live.LiveVoice
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 private enum class HomePage { MAIN, JOBS, ROUTINES }
 
@@ -70,25 +104,52 @@ fun HomeScreen(app: JarvisApp, hooks: Hooks) {
   }
 }
 
+/** A press on a thing: its panel, row, action, and the room member, value or alarm code it needs. */
+private typealias Press = (Panel, PanelRow, String, String?, String?, String?) -> Unit
+
+/** Near the top or bottom of the page, a held tile scrolls it, faster nearer the edge (HomeWall.ts). */
+private val EDGE = 64.dp
+private const val EDGE_SPEED_DP = 600f
+
+/** After a swap, the finger moves this far before the next, so tiles don't flicker back and forth. */
+private val SWAP_GATE = 24.dp
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
   val c = Even.colors
   val scope = rememberCoroutineScope()
+  val haptics = LocalHapticFeedback.current
+  val density = LocalDensity.current
   var panels by remember { mutableStateOf<List<Panel>>(emptyList()) }
   var problem by remember { mutableStateOf("") }
   var flash by remember { mutableStateOf("") }
-  var refreshTick by remember { mutableStateOf(0) }
+  var refreshTick by remember { mutableIntStateOf(0) }
+  // Bumped by every move: a reading of the panels asked for before it is old and is dropped.
+  var seq by remember { mutableIntStateOf(0) }
+  var sheet by remember { mutableStateOf<String?>(null) }
   val connected by app.audio.connected.collectAsStateWithLifecycle()
   val status by app.conversation.status.collectAsStateWithLifecycle()
   val liveState by app.live.state.collectAsStateWithLifecycle()
   var live by remember { mutableStateOf(app.prefs.live) }
-  var opened by remember { mutableStateOf(emptySet<String>()) }
+  val grid = rememberLazyGridState()
+  val mover = remember { Mover() }
+  val saving = remember { Mutex() }
+  val page = remember { Place() }
+  val held = mover.held
 
-  // Re-read every 20 s while Home is in view, and soon after a press, as the web app does.
+  // Re-read every 20 s while Home is in view, and soon after a press, as the web app does; not while
+  // a tile is held, so nothing changes under the finger.
   LaunchedEffect(refreshTick) {
     while (true) {
+      val asked = seq
       runCatching { app.hub.panels() }
-          .onSuccess { panels = it.panels; problem = "" }
+          .onSuccess {
+            if (mover.held == null && asked == seq) {
+              panels = it.panels
+              problem = ""
+            }
+          }
           .onFailure { problem = if (it is Hub.NotAPerson) "" else it.message ?: "Couldn't read the panels" }
       delay(20_000)
     }
@@ -102,14 +163,138 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
     }
   }
 
-  LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    item { Heading("Jarvis") }
-    item { GlassesDisplay(connected = connected, now = statusText(status, liveState)) }
-    item {
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        // As the web app's orb: Talk starts, and the same tile stops what is going.
-        val talking = status != Talk.Status.IDLE || liveState != LiveVoice.State.OFF
-        QuickTile(Glyphs.Mic, if (talking) "Stop" else "Talk", Modifier.weight(1f), selected = talking) {
+  /**
+   * Tells Jarvis the new order of the panels, or of [panelId]'s things. One move at a time, in the
+   * order they were made, since each names only what changed since the one before. If Jarvis can't
+   * keep it, the panels are read again to show the order it has.
+   */
+  fun save(before: List<Panel>, after: List<Panel>, panelId: String?) {
+    seq++
+    scope.launch {
+      saving.withLock {
+        runCatching {
+              if (panelId == null) {
+                app.hub.orderPanels(shortestOrder(before.map { it.id }, after.map { it.id }))
+              } else {
+                app.hub.orderThings(panelId, shortestOrder(keysOf(before.first { it.id == panelId }), keysOf(after.first { it.id == panelId })))
+              }
+            }
+            .onFailure { flash = if (it is Hub.NotAPerson) "Sign in with a code to move tiles" else "Could not move it: ${it.message}" }
+        // A reading asked for while this was on its way may have the old order.
+        seq++
+      }
+      refreshTick++
+    }
+  }
+
+  /** Moves what is held onto the tile [onto], if that is a place it may go: another of its panel's things, or another panel. */
+  fun swap(h: Held, onto: String): Boolean {
+    val next =
+        when (val target = cellsOf(panels, folded = h.thing == null).firstOrNull { it.id == onto }) {
+          is Cell.Header -> if (h.thing == null && target.panel.id != h.panel) movePanel(panels, h.panel, target.panel.id) else return false
+          is Cell.Thing ->
+              if (h.thing != null && target.panel.id == h.panel && target.thing != h.thing) panels.map { if (it.id == h.panel) moveThing(it, h.thing, target.thing) else it }
+              else return false
+          else -> return false
+        }
+    if (next == panels) return false
+    panels = next
+    return true
+  }
+
+  /** Lifts [cell], unless something is held already or a sheet is open; says whether it did. */
+  fun lift(cell: Cell, grab: Offset, finger: Offset, size: androidx.compose.ui.unit.IntSize): Boolean {
+    if (mover.held != null || sheet != null) return false
+    val panelId = when (cell) { is Cell.Header -> cell.panel.id; is Cell.Thing -> cell.panel.id; is Cell.Notes -> return false }
+    seq++
+    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    mover.held = Held(cell.id, panelId, (cell as? Cell.Thing)?.thing, grab, size, panels, finger)
+    return true
+  }
+
+  fun drop() {
+    val h = mover.held ?: return
+    mover.held = null
+    haptics.performHapticFeedback(HapticFeedbackType.GestureEnd)
+    // Readings were set aside while it was held: read again either way.
+    if (panels != h.before) save(h.before, panels, if (h.thing == null) null else h.panel) else refreshTick++
+  }
+
+  /** For TalkBack: moves [cell] one place earlier ([by] -1) or later (+1), and keeps it. */
+  fun nudge(cell: Cell, by: Int): Boolean {
+    if (mover.held != null) return false
+    val before = panels
+    when (cell) {
+      is Cell.Header -> {
+        val i = panels.indexOfFirst { it.id == cell.panel.id }
+        val onto = panels.getOrNull(i + by) ?: return false
+        panels = movePanel(panels, cell.panel.id, onto.id)
+        save(before, panels, null)
+      }
+      is Cell.Thing -> {
+        val panel = panels.firstOrNull { it.id == cell.panel.id } ?: return false
+        val things = keysOf(panel).filter { k -> panel.rows.none { it.key == k && it.kind == "note" } }
+        val onto = things.getOrNull(things.indexOf(cell.thing) + by) ?: return false
+        panels = panels.map { if (it.id == panel.id) moveThing(it, cell.thing, onto) else it }
+        save(before, panels, panel.id)
+      }
+      is Cell.Notes -> return false
+    }
+    return true
+  }
+
+  // While a panel is held the panels fold to their titles, to move among.
+  val cells = cellsOf(panels, folded = held != null && held.thing == null)
+
+  // While a tile is held: scroll near the edges, and make way when it is over another's place.
+  LaunchedEffect(held) {
+    val h = held ?: return@LaunchedEffect
+    val edge = with(density) { EDGE.toPx() }
+    val gate = with(density) { SWAP_GATE.toPx() }
+    val speed = with(density) { EDGE_SPEED_DP.dp.toPx() }
+    var scrolled = 0f
+    var lastSwap = h.finger
+    var last = 0L
+    if (h.thing == null) grid.scrollToItem(0)
+    while (true) {
+      val now = withFrameNanos { it }
+      val dt = if (last == 0L) 0f else (now - last) / 1e9f
+      last = now
+      val box = page.at ?: continue
+      val y = box.windowToLocal(h.finger).y
+      val pull =
+          when {
+            y < edge -> -(1f - y.coerceAtLeast(0f) / edge)
+            y > box.size.height - edge -> 1f - (box.size.height - y).coerceAtLeast(0f) / edge
+            else -> 0f
+          }
+      if (pull != 0f && dt > 0f) scrolled += grid.scrollBy(pull * speed * dt)
+      val at = h.finger + Offset(0f, scrolled)
+      if ((at - lastSwap).getDistance() < gate) continue
+      val onto = mover.under(h.finger) ?: continue
+      if (swap(h, onto)) {
+        lastSwap = at
+        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+      }
+    }
+  }
+
+  Box(Modifier.fillMaxSize().onGloballyPositioned { page.at = it }) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        state = grid,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = Even.gutter, end = Even.gutter, bottom = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(Even.gutter),
+        verticalArrangement = Arrangement.spacedBy(Even.gutter),
+        userScrollEnabled = held == null,
+    ) {
+      item(key = "heading", span = { GridItemSpan(maxLineSpan) }) { Heading("Jarvis") }
+      item(key = "display", span = { GridItemSpan(maxLineSpan) }) { GlassesDisplay(connected = connected, now = statusText(status, liveState)) }
+      // As the web app's orb: Talk starts, and the same tile stops what is going.
+      val talking = status != Talk.Status.IDLE || liveState != LiveVoice.State.OFF
+      item(key = "talk") {
+        QuickTile(Glyphs.Mic, if (talking) "Stop" else "Talk", selected = talking) {
           if (talking) {
             app.conversation.stop()
             app.live.stop()
@@ -117,71 +302,237 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
             hooks.talk()
           }
         }
-        QuickTile(Glyphs.Jobs, "Jobs", Modifier.weight(1f)) { open(HomePage.JOBS) }
       }
-    }
-    item {
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        QuickTile(Glyphs.Clock, "Routines", Modifier.weight(1f)) { open(HomePage.ROUTINES) }
-        QuickTile(Glyphs.Glasses, if (live) "Live voice: on" else "Live voice: off", Modifier.weight(1f), selected = live) {
+      item(key = "jobs") { QuickTile(Glyphs.Jobs, "Jobs") { open(HomePage.JOBS) } }
+      item(key = "routines") { QuickTile(Glyphs.Clock, "Routines") { open(HomePage.ROUTINES) } }
+      item(key = "live") {
+        QuickTile(Glyphs.Glasses, if (live) "Live voice: on" else "Live voice: off", selected = live) {
           live = !live
           app.prefs.live = live
         }
       }
-    }
-    if (flash.isNotEmpty()) item { Text(flash, style = MaterialTheme.typography.bodySmall, color = c.dim, modifier = Modifier.padding(horizontal = 4.dp)) }
-    if (problem.isNotEmpty()) item { Text(problem, style = MaterialTheme.typography.bodySmall, color = c.danger) }
-    if (!app.prefs.token.startsWith("jss1_")) {
-      item {
-        Tile(Modifier.fillMaxWidth()) {
-          Text("Sign in with a code (Settings) to see your Home panels here.", style = MaterialTheme.typography.bodyMedium, color = c.dim)
-        }
-      }
-    }
-    for (panel in panels) {
-      item { Text(panel.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 4.dp, top = 10.dp)) }
-      val notes = panel.rows.filter { it.kind == "note" }
-      if (notes.isNotEmpty()) {
-        item {
+      if (flash.isNotEmpty()) item(key = "flash", span = { GridItemSpan(maxLineSpan) }) { Text(flash, style = MaterialTheme.typography.bodySmall, color = c.dim, modifier = Modifier.padding(horizontal = 4.dp)) }
+      if (problem.isNotEmpty()) item(key = "problem", span = { GridItemSpan(maxLineSpan) }) { Text(problem, style = MaterialTheme.typography.bodySmall, color = c.danger) }
+      if (!app.prefs.token.startsWith("jss1_")) {
+        item(key = "sign-in", span = { GridItemSpan(maxLineSpan) }) {
           Tile(Modifier.fillMaxWidth()) {
-            Column {
-              for (n in notes) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                  Checkbox(checked = n.done == true, onCheckedChange = { scope.launch { runCatching { app.hub.tickNote(panel.id, n.key) }; refreshTick++ } })
-                  Text(n.label, style = MaterialTheme.typography.bodyMedium)
-                }
-              }
-            }
+            Text("Sign in with a code (Settings) to see your Home panels here.", style = MaterialTheme.typography.bodyMedium, color = c.dim)
           }
         }
       }
-      items(tileRows(panel.rows.filter { it.kind != "note" }) { "${panel.id}/${it.key}" in opened }) { pair ->
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          for (row in pair) {
-            val id = "${panel.id}/${row.key}"
-            PanelTile(panel, row, id in opened, { opened = if (id in opened) opened - id else opened + id }, Modifier.weight(1f), ::press)
+      items(cells, key = { it.id }, span = { GridItemSpan(if (it.wide) maxLineSpan else 1) }, contentType = { it::class }) { cell ->
+        val lifted = held != null && (cell.id == held.cell || (cell is Cell.Thing && cell.panel.id == held.panel && cell.thing == held.thing))
+        GridCell(
+            cell = cell,
+            mover = mover,
+            lifted = lifted,
+            folded = held != null && held.thing == null,
+            // Only the finger that lifted a tile moves it and lets it go; a tap while one is held does nothing.
+            onTap = { if (cell is Cell.Thing && mover.held == null) sheet = cell.id },
+            onHold = { grab, finger, size -> lift(cell, grab, finger, size) },
+            onMove = { p -> mover.held?.takeIf { it.cell == cell.id }?.finger = p },
+            onDrop = { if (mover.held?.cell == cell.id) drop() },
+            nudge = { nudge(cell, it) },
+            more = { sheet = cell.id },
+            tick = { panel, key -> scope.launch { runCatching { app.hub.tickNote(panel.id, key) }; refreshTick++ } },
+            press = ::press,
+        )
+      }
+    }
+
+    // The held tile's copy, under the finger at the spot it was held.
+    if (held != null) {
+      val cell = cells.firstOrNull { it.id == held.cell }
+      if (cell != null) {
+        val w = with(density) { held.size.width.toDp() }
+        val h = with(density) { held.size.height.toDp() }
+        Box(
+            Modifier.offset {
+                  val at = page.at?.windowToLocal(held.finger) ?: Offset.Zero
+                  IntOffset((at.x - held.grab.x).roundToInt(), (at.y - held.grab.y).roundToInt())
+                }
+                .size(w, h)
+                .graphicsLayer {
+                  scaleX = 1.03f
+                  scaleY = 1.03f
+                  alpha = 0.95f
+                  shadowElevation = 8.dp.toPx()
+                  shape = Even.corner
+                  clip = true
+                },
+        ) {
+          when (cell) {
+            is Cell.Header -> PanelTitle(cell, folded = true, Modifier.fillMaxSize())
+            is Cell.Thing -> ThingTile(cell.row, Modifier.fillMaxSize(), buttonsOn = false) {}
+            is Cell.Notes -> {}
           }
-          if (pair.size == 1 && "${panel.id}/${pair[0].key}" !in opened) Spacer(Modifier.weight(1f))
         }
+      }
+    }
+  }
+
+  val opened = sheet?.let { id -> cells.firstOrNull { it.id == id } }
+  // A thing gone from its panel closes its sheet, so it can't open again by itself if it comes back.
+  LaunchedEffect(opened == null) { if (opened == null) sheet = null }
+  if (opened != null) {
+    ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = c.tile) {
+      Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        when (opened) {
+          is Cell.Thing -> ThingSheet(opened.panel, opened.row, ::press)
+          is Cell.Notes -> {
+            Text(opened.panel.title, style = MaterialTheme.typography.titleMedium)
+            for (n in opened.rows) NoteLine(n) { scope.launch { runCatching { app.hub.tickNote(opened.panel.id, n.key) }; refreshTick++ } }
+          }
+          is Cell.Header -> {}
+        }
+        if (flash.isNotEmpty()) Text(flash, style = MaterialTheme.typography.bodySmall, color = c.dim)
       }
     }
   }
 }
 
-/** Tiles two to a row, in order, except an opened one, which takes the whole row for its controls. */
-internal fun tileRows(rows: List<PanelRow>, isOpen: (PanelRow) -> Boolean): List<List<PanelRow>> {
-  val out = mutableListOf<List<PanelRow>>()
-  val closed = mutableListOf<PanelRow>()
-  for (row in rows) {
-    if (!isOpen(row)) {
-      closed += row
-      continue
-    }
-    out += closed.chunked(2)
-    closed.clear()
-    out += listOf(row)
+/** One panel cell: its title, its to-dos, or a thing; each knows where it is, for moving onto. */
+@Composable
+private fun LazyGridItemScope.GridCell(
+    cell: Cell,
+    mover: Mover,
+    lifted: Boolean,
+    folded: Boolean,
+    onTap: () -> Unit,
+    onHold: (Offset, Offset, androidx.compose.ui.unit.IntSize) -> Boolean,
+    onMove: (Offset) -> Unit,
+    onDrop: () -> Unit,
+    nudge: (Int) -> Boolean,
+    more: () -> Unit,
+    tick: (Panel, String) -> Unit,
+    press: Press,
+) {
+  val c = Even.colors
+  val place = remember { Place() }
+  DisposableEffect(cell.id) { onDispose { mover.places.remove(cell.id) } }
+  // The held tile stays put in the grid while it scrolls away, or its gesture would end.
+  val pins = LocalPinnableContainer.current
+  val holding = mover.held?.cell == cell.id
+  DisposableEffect(holding) {
+    val pin = if (holding) pins?.pin() else null
+    onDispose { pin?.release() }
   }
-  return out + closed.chunked(2)
+  val where =
+      Modifier.animateItem().onGloballyPositioned {
+        place.at = it
+        mover.places[cell.id] = it.boundsInWindow()
+      }
+  val moving =
+      Modifier.pointerInput(cell.id) { holdToMove(place, onTap, onHold, onMove, onDrop) }
+          .semantics(mergeDescendants = true) {
+            customActions = listOf(CustomAccessibilityAction("Move earlier") { nudge(-1) }, CustomAccessibilityAction("Move later") { nudge(1) })
+          }
+  // The hold is watched on this box, which stays while the tile is held and shows its gap: were it
+  // to go, Compose would end the gesture the moment the tile lifted.
+  when (cell) {
+    is Cell.Header ->
+        Box(where.then(moving)) {
+          if (lifted) Box(Modifier.fillMaxWidth().height(48.dp).dashedGap(c.line)) else PanelTitle(cell, folded, Modifier)
+        }
+    is Cell.Thing ->
+        Box(where.then(moving).semantics { onClick("Open") { onTap(); true } }) {
+          if (lifted) Box(Modifier.fillMaxWidth().aspectRatio(Even.tileAspect).dashedGap(c.line))
+          else ThingTile(cell.row, Modifier, buttonsOn = mover.held == null) { press(cell.panel, cell.row, it.action, null, null, null) }
+        }
+    is Cell.Notes -> NotesTile(cell, where, enabled = mover.held == null, more = more) { tick(cell.panel, it) }
+  }
+}
+
+/** A panel's title across the row, held to move the panel; while panels move, a tile of its own. */
+@Composable
+private fun PanelTitle(cell: Cell.Header, folded: Boolean, modifier: Modifier) {
+  val c = Even.colors
+  Row(
+      modifier.fillMaxWidth().height(48.dp).let { if (folded) it.clip(Even.corner).background(c.tile).padding(horizontal = 16.dp) else it.padding(start = 4.dp, top = 10.dp) },
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(cell.panel.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+    if (folded) Text(if (cell.things == 1) "1 tile" else "${cell.things} tiles", style = MaterialTheme.typography.bodySmall, color = c.dim)
+  }
+}
+
+/** A thing as an Even tile, all one size: icon, name, one line of state, at most one button; the rest on a tap. */
+@Composable
+private fun ThingTile(row: PanelRow, modifier: Modifier, buttonsOn: Boolean, onButton: (PanelAction) -> Unit) {
+  val c = Even.colors
+  val face = faceOf(row)
+  Tile(modifier.aspectRatio(Even.tileAspect)) {
+    Row(Modifier.fillMaxWidth().align(Alignment.TopStart), verticalAlignment = Alignment.CenterVertically) {
+      Icon(iconFor(row.icon), contentDescription = null, tint = if (row.active) c.ink else c.dim, modifier = Modifier.size(24.dp))
+      Spacer(Modifier.weight(1f))
+      if (row.active) Box(Modifier.size(7.dp).clip(CircleShape).background(c.on))
+      if (face.more) Text("›", style = MaterialTheme.typography.titleMedium, color = c.dim, modifier = Modifier.padding(start = 8.dp))
+    }
+    Column(Modifier.align(Alignment.BottomStart)) {
+      Text(row.label, style = MaterialTheme.typography.bodyLarge, maxLines = face.labelLines, overflow = TextOverflow.Ellipsis)
+      if (face.status.isNotEmpty()) {
+        Text(face.status, style = MaterialTheme.typography.bodySmall, color = if (face.warning) c.danger else c.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+      }
+      face.button?.let { b ->
+        Spacer(Modifier.height(8.dp))
+        key(b.action) { SafePill(b.label, enabled = buttonsOn) { onButton(b) } }
+      }
+    }
+  }
+}
+
+/**
+ * A panel's to-dos as one tile across the row, one or two tiles tall, showing as many as fit; a tap
+ * anywhere but a to-do opens them all.
+ */
+@Composable
+private fun NotesTile(cell: Cell.Notes, modifier: Modifier, enabled: Boolean, more: () -> Unit, tick: (String) -> Unit) {
+  val c = Even.colors
+  val fontScale = LocalDensity.current.fontScale
+  BoxWithConstraints(modifier.fillMaxWidth()) {
+    val tile = (maxWidth - Even.gutter) / 2 / Even.tileAspect
+    val height = if (cell.tall) tile * 2 + Even.gutter else tile
+    val room = height - 32.dp
+    val moreLine = 24.dp * fontScale
+    val shown = if (cell.rows.size <= (room / NOTE_LINE).toInt()) cell.rows.size else ((room - moreLine) / NOTE_LINE).toInt().coerceAtLeast(0)
+    Tile(Modifier.fillMaxWidth().height(height), onClick = if (enabled) more else null) {
+      Column {
+        for (n in cell.rows.take(shown)) NoteLine(n, enabled) { tick(n.key) }
+        if (cell.rows.size > shown) Text("${cell.rows.size - shown} more", style = MaterialTheme.typography.bodySmall, color = c.dim, modifier = Modifier.padding(top = 4.dp))
+      }
+    }
+  }
+}
+
+private val NOTE_LINE = 40.dp
+
+@Composable
+private fun NoteLine(note: PanelRow, enabled: Boolean = true, tick: () -> Unit) {
+  Row(
+      Modifier.fillMaxWidth().height(NOTE_LINE).toggleable(value = note.done == true, enabled = enabled, role = Role.Checkbox) { tick() },
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Checkbox(checked = note.done == true, onCheckedChange = null)
+    Spacer(Modifier.size(10.dp))
+    Text(note.label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+  }
+}
+
+/** All of a thing, on a tap of its tile: its name and state in full, every button, and its controls. */
+@Composable
+private fun ThingSheet(panel: Panel, row: PanelRow, press: Press) {
+  val c = Even.colors
+  Row(verticalAlignment = Alignment.CenterVertically) {
+    Icon(iconFor(row.icon), contentDescription = null, tint = if (row.active) c.ink else c.dim, modifier = Modifier.size(24.dp))
+    Spacer(Modifier.size(12.dp))
+    Text(row.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+    if (row.active) Box(Modifier.size(7.dp).clip(CircleShape).background(c.on))
+  }
+  if (row.value.isNotEmpty()) Text(row.value, style = MaterialTheme.typography.bodyMedium, color = c.dim)
+  row.note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = c.danger) }
+  for (f in row.tiles) Text("${f.label} ${f.value}", style = MaterialTheme.typography.bodySmall, color = c.dim)
+  Buttons(row.actions.filter { it.input == null }) { press(panel, row, it.action, null, null, null) }
+  More(panel, row, press)
 }
 
 private fun statusText(s: Talk.Status, live: LiveVoice.State): String =
@@ -221,58 +572,26 @@ private fun GlassesDisplay(connected: Boolean, now: String) {
   }
 }
 
+/** Talk, Jobs, Routines, Live voice: the same size as every other tile, as the Even app's. */
 @Composable
-private fun QuickTile(icon: ImageVector, label: String, modifier: Modifier, selected: Boolean = false, onClick: () -> Unit) {
-  Tile(modifier.aspectRatio(1.6f), onClick = onClick, selected = selected) {
-    Icon(icon, contentDescription = null, tint = Even.colors.ink, modifier = Modifier.size(26.dp).align(Alignment.TopStart))
+private fun QuickTile(icon: ImageVector, label: String, selected: Boolean = false, onClick: () -> Unit) {
+  Tile(Modifier.aspectRatio(Even.tileAspect), onClick = onClick, selected = selected) {
+    Icon(icon, contentDescription = null, tint = Even.colors.ink, modifier = Modifier.size(24.dp).align(Alignment.TopStart))
     Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.align(Alignment.BottomStart))
-  }
-}
-
-/** One panel row as an Even tile: icon, name, state, and its buttons; tap to open its controls. */
-@Composable
-private fun PanelTile(
-    panel: Panel,
-    row: PanelRow,
-    open: Boolean,
-    toggle: () -> Unit,
-    modifier: Modifier,
-    press: (Panel, PanelRow, String, String?, String?, String?) -> Unit,
-) {
-  val c = Even.colors
-  Tile(modifier, onClick = if (row.more != null) toggle else null) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(iconFor(row.icon), contentDescription = null, tint = if (row.active) c.ink else c.dim, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.weight(1f))
-        if (row.active) Box(Modifier.size(7.dp).clip(CircleShape).background(c.on))
-      }
-      Text(row.label, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-      Text(row.note ?: row.value, style = MaterialTheme.typography.bodySmall, color = if (row.note != null) c.danger else c.dim, maxLines = 2)
-      for (f in row.tiles) Text("${f.label} ${f.value}", style = MaterialTheme.typography.labelSmall, color = c.dim)
-      Buttons(row.actions.filter { it.input == null }) { press(panel, row, it.action, null, null, null) }
-      if (open) More(panel, row, press)
-    }
   }
 }
 
 @Composable
 private fun Buttons(actions: List<PanelAction>, onPress: (PanelAction) -> Unit) {
   if (actions.isEmpty()) return
-  Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-    for (a in actions.take(3)) {
-      Text(
-          a.label,
-          style = MaterialTheme.typography.labelLarge,
-          modifier = Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(50)).outlinePill(Even.colors.line).clickable { onPress(a) }.padding(horizontal = 10.dp, vertical = 5.dp),
-      )
-    }
+  FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    for (a in actions) key(a.action) { SafePill(a.label) { onPress(a) } }
   }
 }
 
-/** What opens under a tile: a room's lights, a slider, the thermostat, the alarm. */
+/** A thing's controls, in its sheet: a room's lights, a slider, the thermostat, the alarm. */
 @Composable
-private fun More(panel: Panel, row: PanelRow, press: (Panel, PanelRow, String, String?, String?, String?) -> Unit) {
+private fun More(panel: Panel, row: PanelRow, press: Press) {
   val more = row.more ?: return
   val c = Even.colors
   more.members?.forEach { m ->
