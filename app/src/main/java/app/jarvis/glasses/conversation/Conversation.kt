@@ -108,7 +108,7 @@ class Conversation(
     if (now() - lastActive > forgetAfterMs) _turns.value = emptyList()
     try {
       if (!mouth.open()) {
-        _note.value = "The glasses aren't connected as a headset"
+        _note.value = "Couldn't open the microphone and speaker"
         return
       }
       if (opening != null) {

@@ -107,7 +107,16 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
     item { GlassesDisplay(connected = connected, now = statusText(status, liveState)) }
     item {
       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        QuickTile(Glyphs.Mic, "Talk", Modifier.weight(1f)) { hooks.talk() }
+        // As the web app's orb: Talk starts, and the same tile stops what is going.
+        val talking = status != Talk.Status.IDLE || liveState != LiveVoice.State.OFF
+        QuickTile(Glyphs.Mic, if (talking) "Stop" else "Talk", Modifier.weight(1f), selected = talking) {
+          if (talking) {
+            app.conversation.stop()
+            app.live.stop()
+          } else {
+            hooks.talk()
+          }
+        }
         QuickTile(Glyphs.Jobs, "Jobs", Modifier.weight(1f)) { open(HomePage.JOBS) }
       }
     }

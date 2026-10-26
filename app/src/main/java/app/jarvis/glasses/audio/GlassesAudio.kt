@@ -37,8 +37,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The glasses as a Bluetooth headset: their microphone and speakers over HFP (SCO), which any app
  * can use without the Wearables toolkit. While a conversation is open the phone is in
  * communication mode with the glasses as its communication device, so recording and playback both
- * go through them, and the phone's own microphone is never opened (as in Meta's CameraAccess
- * sample, `AudioInputHandler`).
+ * go through them (as in Meta's CameraAccess sample, `AudioInputHandler`).
+ *
+ * Without the glasses, Talk in the app still works, as the web app does: the phone becomes a
+ * speakerphone, its loudspeaker and its own microphone.
  *
  * Only a headset whose name looks like Meta glasses counts, so a car or earbuds connected at the
  * same time are not mistaken for them.
@@ -78,18 +80,23 @@ class GlassesAudio(context: Context) : Ears, Mouth {
           }
           .getOrNull()
 
+  /** The phone's own loudspeaker, for talking without the glasses. */
+  private fun loudspeaker(): AudioDeviceInfo? =
+      runCatching { audio.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER } }.getOrNull()
+
   override suspend fun open(): Boolean {
     if (routed) return true
-    val device = glasses() ?: return false
+    val device = glasses() ?: loudspeaker() ?: return false
     previousMode = audio.mode
     routed = true
     audio.mode = AudioManager.MODE_IN_COMMUNICATION
     val ok =
         runCatching { audio.setCommunicationDevice(device) }.getOrDefault(false) &&
             withTimeoutOrNull(3_000) {
-              while (audio.communicationDevice?.type != AudioDeviceInfo.TYPE_BLUETOOTH_SCO) delay(100)
+              while (audio.communicationDevice?.type != device.type) delay(100)
               true
             } == true
+    Log.i(TAG, "open: ${if (device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) "glasses" else "phone"}, ${if (ok) "routed" else "failed"}")
     if (!ok) close()
     return ok
   }
@@ -107,9 +114,9 @@ class GlassesAudio(context: Context) : Ears, Mouth {
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
           return@withContext null
         }
-        val input =
-            audio.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
-                ?: return@withContext null
+        // The glasses' microphone while they are the call's device, else the phone's own.
+        val want = if (audio.communicationDevice?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) AudioDeviceInfo.TYPE_BLUETOOTH_SCO else AudioDeviceInfo.TYPE_BUILTIN_MIC
+        val input = audio.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.type == want } ?: return@withContext null
         val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val record =
             AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, min * 4)
@@ -141,7 +148,7 @@ class GlassesAudio(context: Context) : Ears, Mouth {
         } finally {
           runCatching { record.stop() }
           record.release()
-          // How a turn ended, and how loud the glasses' microphone got: tells "nobody spoke" from
+          // How a turn ended, and how loud the microphone got: tells "nobody spoke" from
           // "spoke, but too quietly to count".
           Log.i(TAG, "listen: $verdict, ${pcm.size() / 2 / (RATE / 1000)} ms, loudest $loudest, from ${record.routedDevice?.productName}")
         }

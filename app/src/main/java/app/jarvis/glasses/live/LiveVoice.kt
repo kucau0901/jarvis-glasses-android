@@ -32,7 +32,8 @@ import org.webrtc.SessionDescription
 import org.webrtc.audio.JavaAudioDeviceModule
 
 /**
- * Live voice: a GPT-Live session over WebRTC, with the glasses as the microphone and speakers.
+ * Live voice: a GPT-Live session over WebRTC, with the glasses as the microphone and speakers, or
+ * the phone as a speakerphone without them.
  * The offer goes to Jarvis's `/api/session`, which opens it with OpenAI and hands back the answer,
  * and [LiveRelay] does the rest. Needs `OPENAI_API_KEY` on the Jarvis side; [start] reports
  * failure so the caller can fall back to a push-to-talk conversation.
@@ -92,7 +93,7 @@ class LiveVoice(
     var relay: LiveRelay? = null
     var openedAt = 0L
     try {
-      if (!audio.open()) return onFail("The glasses aren't connected as a headset")
+      if (!audio.open()) return onFail("Couldn't open the microphone and speaker")
       val f = factory()
       val gathered = CompletableDeferred<Unit>()
       val ended = CompletableDeferred<Unit>()
