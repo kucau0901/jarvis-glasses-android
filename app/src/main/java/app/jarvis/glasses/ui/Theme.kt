@@ -79,7 +79,8 @@ val DarkEven =
         ink = Color(0xFFEDEDED),
         dim = Color(0xFF8C8C8C),
         line = Color(0xFF2C2C2C),
-        hud = Color(0xFF121311),
+        // As light as the tiles, so the panel's edge shows on the near-black page.
+        hud = Color(0xFF1B1C1A),
         hudInk = Color(0xFFE2E4DD),
         accent = Color(0xFFEDEDED),
         danger = Color(0xFFE5675A),
