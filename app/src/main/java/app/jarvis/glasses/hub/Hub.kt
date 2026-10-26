@@ -40,11 +40,22 @@ class Hub(private val client: JarvisClient) {
                 put("key", key)
                 put("action", action)
                 member?.let { put("member", it) }
-                value?.let { v -> v.toDoubleOrNull()?.let { put("value", it) } ?: put("value", v) }
+                // As the web sends it: always words, so "007" stays "007"; Jarvis reads a number from them.
+                value?.let { put("value", it) }
                 code?.let { put("code", it) }
               },
           )
           .text
+
+  /**
+   * A tile's reading. [cached]: the one Jarvis kept, at once (with `stale` when it is due again);
+   * without, Jarvis reads it now, which for one it looks up can take a minute and a half.
+   */
+  suspend fun read(panel: String, key: String, cached: Boolean): Reading =
+      get("/api/hub/panels/read?panel=${enc(panel)}&key=${enc(key)}" + if (cached) "&cached=1" else "")
+
+  /** A number's last day, for its chart. */
+  suspend fun history(panel: String, key: String): History = get("/api/hub/panels/history?panel=${enc(panel)}&key=${enc(key)}")
 
   suspend fun tickNote(panel: String, key: String) {
     post<JsonObject>("/api/hub/panels/note", buildJsonObject { put("panel", panel); put("tick", key) })

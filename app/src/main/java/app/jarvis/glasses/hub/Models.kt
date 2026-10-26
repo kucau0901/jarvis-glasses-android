@@ -21,7 +21,10 @@ data class Me(
 
 // Home panels (src/shared/panels.ts)
 
-@Serializable data class PanelsReply(val panels: List<Panel> = emptyList())
+@Serializable data class PanelsReply(val panels: List<Panel> = emptyList(), val can: Can? = null)
+
+/** What a panel could show for this person, for an empty Home to say so. */
+@Serializable data class Can(val home: Boolean = false, val car: Boolean = false)
 
 @Serializable data class Panel(val id: String, val title: String, val rows: List<PanelRow> = emptyList())
 
@@ -39,6 +42,16 @@ data class PanelRow(
     val note: String? = null,
     val more: PanelMore? = null,
     val done: Boolean? = null,
+    /** A tile whose reading comes on its own (GET /api/hub/panels/read): [Reading]. */
+    val read: Boolean = false,
+    /** That reading's tool, run each time it is read… */
+    val tool: String? = null,
+    /** …or, for one Jarvis looks up, how many minutes old it may get before it is looked up again… */
+    val every: Int? = null,
+    /** …and whether it is kept fresh with Home closed. */
+    val refresh: Boolean = false,
+    /** The alerts set on it, a few words each ("above 200", "opens"). */
+    val alerts: List<String> = emptyList(),
 )
 
 @Serializable data class Figure(val label: String, val value: String)
@@ -54,7 +67,17 @@ data class PanelMore(
     val actions: List<PanelAction>? = null,
     val code: AlarmCode? = null,
     val level: Level? = null,
+    /** A number read over the last day: its chart comes from GET /api/hub/panels/history. */
+    val history: Boolean = false,
+    /** "Alert me": its two states in words, a number to go above or below, or words (POST /api/hub/panels/alert). */
+    val alert: AlertSpec? = null,
+    /** Where it is (the car). */
+    val map: LatLng? = null,
 )
+
+@Serializable data class AlertSpec(val kind: String, val on: String = "", val off: String = "", val unit: String = "", val value: Double? = null)
+
+@Serializable data class LatLng(val lat: Double, val lng: Double)
 
 @Serializable
 data class Climate(
@@ -65,6 +88,8 @@ data class Climate(
     val step: Double,
     val modes: List<String> = emptyList(),
     val mode: String = "",
+    val fans: List<String> = emptyList(),
+    val fan: String? = null,
 )
 
 @Serializable data class AlarmCode(val digits: Boolean = true, @kotlinx.serialization.SerialName("for") val forActions: List<String> = emptyList())
@@ -72,6 +97,36 @@ data class Climate(
 @Serializable data class Level(val name: String, val value: Double, val min: Double, val max: Double, val step: Double, val unit: String = "")
 
 @Serializable data class ActReply(val text: String = "")
+
+/**
+ * A tile's reading (GET /api/hub/panels/read, src/worker/lib/panel-tiles.ts): a line, figures, a
+ * list, perhaps a chart, a map or a picture, and when it was looked up. [stale] (asked for the kept
+ * one) means it is due to be looked up again; [pending], that it is being looked up. [failed] is the
+ * app's own: the reading could not be had, and [text] says why.
+ */
+@Serializable
+data class Reading(
+    val text: String = "",
+    val figures: List<Figure> = emptyList(),
+    val list: List<String> = emptyList(),
+    val image: String? = null,
+    val chart: ReadingChart? = null,
+    val map: LatLng? = null,
+    val at: Long? = null,
+    val source: String? = null,
+    val stale: Boolean = false,
+    val pending: Boolean = false,
+    @kotlinx.serialization.Transient val failed: Boolean = false,
+)
+
+@Serializable data class ReadingChart(val title: String = "", val points: List<ChartPoint> = emptyList())
+
+@Serializable data class ChartPoint(val x: String, val y: Double)
+
+/** A number's last day (GET /api/hub/panels/history). */
+@Serializable data class History(val points: List<HistoryPoint> = emptyList(), val unit: String = "")
+
+@Serializable data class HistoryPoint(val t: Long, val v: Double)
 
 @Serializable data class OrderReply(val order: List<String> = emptyList())
 

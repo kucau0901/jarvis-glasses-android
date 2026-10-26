@@ -43,6 +43,10 @@ data class EvenColors(
     val accent: Color,
     val danger: Color,
     val on: Color,
+    /** A lit thing's icon, by kind (HomeIcons.Tint), in the Jarvis web app's colours. */
+    val tintOpen: Color,
+    val tintGood: Color,
+    val tintWarm: Color,
 )
 
 val LightEven =
@@ -59,6 +63,10 @@ val LightEven =
         accent = Color(0xFF1B1B1B),
         danger = Color(0xFFD64535),
         on = Color(0xFF2FA84F),
+        tintOpen = Color(0xFF3E6AE1),
+        tintGood = Color(0xFF0B7D26),
+        // The web's amber is #FBB01B; a thin line of it on white needs it a little deeper.
+        tintWarm = Color(0xFFD99100),
     )
 
 val DarkEven =
@@ -75,6 +83,9 @@ val DarkEven =
         accent = Color(0xFFEDEDED),
         danger = Color(0xFFE5675A),
         on = Color(0xFF4CC46E),
+        tintOpen = Color(0xFF5B84FF),
+        tintGood = Color(0xFF12BB00),
+        tintWarm = Color(0xFFFBB01B),
     )
 
 val LocalEven = staticCompositionLocalOf { LightEven }

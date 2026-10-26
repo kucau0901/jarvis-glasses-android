@@ -129,6 +129,95 @@ class HubTest {
   }
 
   @Test
+  fun aTilesKeptReadingIsAskedForAndRead() = runBlocking {
+    server.enqueue(
+        MockResponse()
+            .setBody(
+                """{"text":"XYZ: 251.30 USD","figures":[{"label":"Price","value":"251.30 USD"}],"list":["Up 1.2% today"],
+                  "chart":{"title":"Week","points":[{"x":"Mon","y":250},{"x":"Tue","y":251.3}]},"at":1700000000000,
+                  "source":"https://example.com/quote","stale":true}""",
+            ),
+    )
+    val r = hub.read("p_1", "t_ab", cached = true)
+    assertEquals("XYZ: 251.30 USD", r.text)
+    assertEquals("251.30 USD", r.figures.single().value)
+    assertEquals(2, r.chart!!.points.size)
+    assertTrue(r.stale)
+    val req = server.takeRequest()
+    assertEquals("GET", req.method)
+    assertEquals("/api/hub/panels/read?panel=p_1&key=t_ab&cached=1", req.path)
+    assertEquals("Bearer jss1_test", req.getHeader("Authorization"))
+  }
+
+  @Test
+  fun aFreshReadingIsAskedForWithoutCached() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"text":"Nothing in the calendar for today.","list":["1. Dentist, 15:00"]}"""))
+    val r = hub.read("p 1", "t_cd", cached = false)
+    assertEquals(listOf("1. Dentist, 15:00"), r.list)
+    assertEquals("/api/hub/panels/read?panel=p+1&key=t_cd", server.takeRequest().path)
+  }
+
+  @Test
+  fun aReadingThatFailsSaysWhy() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(502).setBody("""{"error":"Could not read it just now: timeout"}"""))
+    try {
+      hub.read("p_1", "t_ab", cached = false)
+      fail("expected an error")
+    } catch (e: JarvisClient.JarvisException) {
+      assertEquals("Could not read it just now: timeout", e.message)
+    }
+  }
+
+  @Test
+  fun aNumbersDayIsRead() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"points":[{"t":1,"v":21.5},{"t":2,"v":22}],"unit":"°C"}"""))
+    val h = hub.history("p_1", "sensor.lounge")
+    assertEquals(22.0, h.points.last().v, 0.0)
+    assertEquals("°C", h.unit)
+    assertEquals("/api/hub/panels/history?panel=p_1&key=sensor.lounge", server.takeRequest().path)
+  }
+
+  @Test
+  fun typedWordsAreSentAsWords() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"text":"Done."}"""))
+    hub.act("p_1", "t_ab", "say", value = "007")
+    assertEquals("\"007\"", body()["value"].toString())
+  }
+
+  @Test
+  fun panelRowsKeepWhatTheWebShows() = runBlocking {
+    server.enqueue(
+        MockResponse()
+            .setBody(
+                """{"panels":[{"id":"p1","title":"Things","rows":[
+                  {"key":"t_ab","kind":"tile","label":"Share","value":"","icon":"web","active":false,"tiles":[],"actions":[],
+                   "read":true,"every":60,"refresh":true,"more":{"alert":{"kind":"words"}},"alerts":["above 150"]},
+                  {"key":"climate.x","kind":"home","label":"Aircond","value":"Cool","icon":"climate","active":true,"tiles":[],"actions":[],
+                   "more":{"climate":{"min":16,"max":30,"step":1,"modes":["cool","off"],"mode":"cool","fans":["low","high"],"fan":"low"}}},
+                  {"key":"sensor.t","kind":"home","label":"Lounge","value":"24 °C","icon":"temp","active":false,"tiles":[],"actions":[],
+                   "more":{"history":true,"alert":{"kind":"number","unit":"°C","value":24}}},
+                  {"key":"car1","kind":"car","label":"Car","value":"300 km","icon":"car","active":false,"level":80,"tiles":[],"actions":[],
+                   "more":{"map":{"lat":1.5,"lng":103.7}}}]}],
+                  "can":{"home":true,"car":true}}""",
+            ),
+    )
+    val reply = hub.panels()
+    val (tile, aircond, sensor, car) = reply.panels.single().rows
+    assertTrue(tile.read)
+    assertEquals(60, tile.every)
+    assertTrue(tile.refresh)
+    assertEquals(listOf("above 150"), tile.alerts)
+    assertEquals("words", tile.more!!.alert!!.kind)
+    assertEquals("low", aircond.more!!.climate!!.fan)
+    assertEquals(listOf("low", "high"), aircond.more!!.climate!!.fans)
+    assertTrue(sensor.more!!.history)
+    assertEquals(24.0, sensor.more!!.alert!!.value!!, 0.0)
+    assertEquals(103.7, car.more!!.map!!.lng, 0.0)
+    assertEquals(80.0, car.level!!, 0.0)
+    assertTrue(reply.can!!.car)
+  }
+
+  @Test
   fun historyIsKeptTenAtATime() = runBlocking {
     server.enqueue(MockResponse().setBody("""{"kept":2}"""))
     hub.keep(List(12) { Said("id$it" + "xxxx", 0, if (it % 2 == 0) "user" else "assistant", "t$it") })

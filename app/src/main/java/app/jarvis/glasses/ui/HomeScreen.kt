@@ -1,6 +1,7 @@
 package app.jarvis.glasses.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridItemScope
@@ -27,13 +29,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.DateRange
-import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -75,13 +71,17 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import app.jarvis.glasses.JarvisApp
 import app.jarvis.glasses.conversation.Conversation as Talk
 import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.hub.Panel
 import app.jarvis.glasses.hub.PanelAction
 import app.jarvis.glasses.hub.PanelRow
+import app.jarvis.glasses.hub.Reading
 import app.jarvis.glasses.live.LiveVoice
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -137,21 +137,46 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
   val saving = remember { Mutex() }
   val page = remember { Place() }
   val held = mover.held
+  val lifecycle = LocalLifecycleOwner.current.lifecycle
+  // Tile readings by "panel\nkey", kept across re-reads of the panels and moves.
+  val readings = remember { mutableStateMapOf<String, Got>() }
+  fun readingOf(panel: Panel, row: PanelRow): Reading? = if (row.read) readings["${panel.id}\n${row.key}"]?.reading else null
+
+  /** Reads [row]'s tile if it is due (HomeReadings.kt): the kept reading, then a fresh one if that is stale. */
+  fun read(panel: Panel, row: PanelRow) {
+    val at = "${panel.id}\n${row.key}"
+    val now = System.currentTimeMillis()
+    if (!due(readings[at], now)) return
+    readings[at] = Got(readings[at]?.reading, now)
+    scope.launch {
+      val kept = runCatching { app.hub.read(panel.id, row.key, cached = true) }.getOrElse { failedReading(it.message) }
+      readings[at] = Got(shown(readings[at]?.reading, kept), now)
+      if (!kept.stale || kept.failed) return@launch
+      val fresh = runCatching { app.hub.read(panel.id, row.key, cached = false) }.getOrElse { failedReading(it.message) }
+      readings[at] = Got(shown(readings[at]?.reading, fresh), askedAt(fresh, System.currentTimeMillis()))
+    }
+  }
 
   // Re-read every 20 s while Home is in view, and soon after a press, as the web app does; not while
-  // a tile is held, so nothing changes under the finger.
+  // a tile is held, so nothing changes under the finger, nor with the app out of sight (a stale
+  // reading costs Jarvis a lookup).
   LaunchedEffect(refreshTick) {
-    while (true) {
-      val asked = seq
-      runCatching { app.hub.panels() }
-          .onSuccess {
-            if (mover.held == null && asked == seq) {
-              panels = it.panels
-              problem = ""
+    lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+      while (true) {
+        val asked = seq
+        runCatching { app.hub.panels() }
+            .onSuccess {
+              if (mover.held == null && asked == seq) {
+                panels = it.panels
+                problem = ""
+                val here = it.panels.flatMap { p -> p.rows.map { r -> "${p.id}\n${r.key}" } }.toSet()
+                readings.keys.retainAll(here)
+                for (p in it.panels) for (r in p.rows) if (r.read) read(p, r)
+              }
             }
-          }
-          .onFailure { problem = if (it is Hub.NotAPerson) "" else it.message ?: "Couldn't read the panels" }
-      delay(20_000)
+            .onFailure { problem = if (it is Hub.NotAPerson) "" else it.message ?: "Couldn't read the panels" }
+        delay(20_000)
+      }
     }
   }
 
@@ -324,6 +349,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
         val lifted = held != null && (cell.id == held.cell || (cell is Cell.Thing && cell.panel.id == held.panel && cell.thing == held.thing))
         GridCell(
             cell = cell,
+            reading = (cell as? Cell.Thing)?.let { readingOf(it.panel, it.row) },
             mover = mover,
             lifted = lifted,
             folded = held != null && held.thing == null,
@@ -363,7 +389,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
         ) {
           when (cell) {
             is Cell.Header -> PanelTitle(cell, folded = true, Modifier.fillMaxSize())
-            is Cell.Thing -> ThingTile(cell.row, Modifier.fillMaxSize(), buttonsOn = false) {}
+            is Cell.Thing -> ThingTile(cell.row, readingOf(cell.panel, cell.row), Modifier.fillMaxSize(), buttonsOn = false) {}
             is Cell.Notes -> {}
           }
         }
@@ -378,7 +404,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
     ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = c.tile) {
       Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         when (opened) {
-          is Cell.Thing -> ThingSheet(opened.panel, opened.row, ::press)
+          is Cell.Thing -> ThingSheet(opened.panel, opened.row, readingOf(opened.panel, opened.row), ::press)
           is Cell.Notes -> {
             Text(opened.panel.title, style = MaterialTheme.typography.titleMedium)
             for (n in opened.rows) NoteLine(n) { scope.launch { runCatching { app.hub.tickNote(opened.panel.id, n.key) }; refreshTick++ } }
@@ -395,6 +421,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
 @Composable
 private fun LazyGridItemScope.GridCell(
     cell: Cell,
+    reading: Reading?,
     mover: Mover,
     lifted: Boolean,
     folded: Boolean,
@@ -437,7 +464,7 @@ private fun LazyGridItemScope.GridCell(
     is Cell.Thing ->
         Box(where.then(moving).semantics { onClick("Open") { onTap(); true } }) {
           if (lifted) Box(Modifier.fillMaxWidth().aspectRatio(Even.tileAspect).dashedGap(c.line))
-          else ThingTile(cell.row, Modifier, buttonsOn = mover.held == null) { press(cell.panel, cell.row, it.action, null, null, null) }
+          else ThingTile(cell.row, reading, Modifier, buttonsOn = mover.held == null) { press(cell.panel, cell.row, it.action, null, null, null) }
         }
     is Cell.Notes -> NotesTile(cell, where, enabled = mover.held == null, more = more) { tick(cell.panel, it) }
   }
@@ -456,28 +483,61 @@ private fun PanelTitle(cell: Cell.Header, folded: Boolean, modifier: Modifier) {
   }
 }
 
-/** A thing as an Even tile, all one size: icon, name, one line of state, at most one button; the rest on a tap. */
+/**
+ * A thing as an Even tile, all one size: its icon (the web app's, in its colour when lit), name,
+ * state or reading, a car's battery, at most one button; the rest on a tap.
+ */
 @Composable
-private fun ThingTile(row: PanelRow, modifier: Modifier, buttonsOn: Boolean, onButton: (PanelAction) -> Unit) {
+private fun ThingTile(row: PanelRow, reading: Reading?, modifier: Modifier, buttonsOn: Boolean, onButton: (PanelAction) -> Unit) {
   val c = Even.colors
-  val face = faceOf(row)
+  val face = faceOf(row, reading)
   Tile(modifier.aspectRatio(Even.tileAspect)) {
     Row(Modifier.fillMaxWidth().align(Alignment.TopStart), verticalAlignment = Alignment.CenterVertically) {
-      Icon(iconFor(row.icon), contentDescription = null, tint = if (row.active) c.ink else c.dim, modifier = Modifier.size(24.dp))
+      Icon(HomeIcons.of(row.icon), contentDescription = null, tint = iconTint(row), modifier = Modifier.size(24.dp))
       Spacer(Modifier.weight(1f))
+      face.badge?.let { Text(it, style = MaterialTheme.typography.labelLarge, color = if (face.low) c.danger else c.dim, modifier = Modifier.padding(end = 6.dp)) }
       if (row.active) Box(Modifier.size(7.dp).clip(CircleShape).background(c.on))
       if (face.more) Text("›", style = MaterialTheme.typography.titleMedium, color = c.dim, modifier = Modifier.padding(start = 8.dp))
     }
     Column(Modifier.align(Alignment.BottomStart)) {
       Text(row.label, style = MaterialTheme.typography.bodyLarge, maxLines = face.labelLines, overflow = TextOverflow.Ellipsis)
       if (face.status.isNotEmpty()) {
-        Text(face.status, style = MaterialTheme.typography.bodySmall, color = if (face.warning) c.danger else c.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            face.status,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (face.warning) c.danger else c.dim.copy(alpha = if (face.faint) 0.7f else 1f),
+            maxLines = face.statusLines,
+            overflow = TextOverflow.Ellipsis,
+        )
       }
+      face.bar?.let { Battery(it, face.low, Modifier.padding(top = 8.dp)) }
       face.button?.let { b ->
         Spacer(Modifier.height(8.dp))
         key(b.action) { SafePill(b.label, enabled = buttonsOn) { onButton(b) } }
       }
     }
+  }
+}
+
+/** A lit thing's icon in its kind's colour, as on the web; otherwise grey. */
+@Composable
+private fun iconTint(row: PanelRow): androidx.compose.ui.graphics.Color {
+  val c = Even.colors
+  if (!row.active) return c.dim
+  return when (HomeIcons.tintOf(row.icon)) {
+    HomeIcons.Tint.OPEN -> c.tintOpen
+    HomeIcons.Tint.GOOD -> c.tintGood
+    HomeIcons.Tint.ALERT -> c.danger
+    HomeIcons.Tint.WARM -> c.tintWarm
+  }
+}
+
+/** A car's battery as a bar, green, or red when low. */
+@Composable
+private fun Battery(level: Float, low: Boolean, modifier: Modifier = Modifier) {
+  val c = Even.colors
+  Box(modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(c.chip)) {
+    Box(Modifier.fillMaxWidth(level).height(6.dp).clip(CircleShape).background(if (low) c.danger else c.tintGood))
   }
 }
 
@@ -518,21 +578,69 @@ private fun NoteLine(note: PanelRow, enabled: Boolean = true, tick: () -> Unit) 
   }
 }
 
-/** All of a thing, on a tap of its tile: its name and state in full, every button, and its controls. */
+/** All of a thing, on a tap of its tile: its name and state or reading in full, every button, and its controls. */
 @Composable
-private fun ThingSheet(panel: Panel, row: PanelRow, press: Press) {
+private fun ThingSheet(panel: Panel, row: PanelRow, reading: Reading?, press: Press) {
   val c = Even.colors
   Row(verticalAlignment = Alignment.CenterVertically) {
-    Icon(iconFor(row.icon), contentDescription = null, tint = if (row.active) c.ink else c.dim, modifier = Modifier.size(24.dp))
+    Icon(HomeIcons.of(row.icon), contentDescription = null, tint = iconTint(row), modifier = Modifier.size(24.dp))
     Spacer(Modifier.size(12.dp))
     Text(row.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-    if (row.active) Box(Modifier.size(7.dp).clip(CircleShape).background(c.on))
+    row.level?.let { Text("${it.toInt()}%", style = MaterialTheme.typography.labelLarge, color = if (it < LOW_BATTERY) c.danger else c.dim) }
+    if (row.active) Box(Modifier.padding(start = 8.dp).size(7.dp).clip(CircleShape).background(c.on))
   }
   if (row.value.isNotEmpty()) Text(row.value, style = MaterialTheme.typography.bodyMedium, color = c.dim)
+  row.level?.let { Battery((it / 100.0).toFloat().coerceIn(0f, 1f), it < LOW_BATTERY) }
   row.note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = c.danger) }
-  for (f in row.tiles) Text("${f.label} ${f.value}", style = MaterialTheme.typography.bodySmall, color = c.dim)
+  if (row.read) ReadingView(row, reading)
+  Figures(row.tiles)
+  if (row.alerts.isNotEmpty()) Text("Alerts: " + row.alerts.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.tintOpen)
   Buttons(row.actions.filter { it.input == null }) { press(panel, row, it.action, null, null, null) }
   More(panel, row, press)
+}
+
+/** A tile's reading in full, in the web's order: its line, figures, list, when it was checked, and where from. */
+@Composable
+private fun ReadingView(row: PanelRow, reading: Reading?) {
+  val c = Even.colors
+  val context = androidx.compose.ui.platform.LocalContext.current
+  when {
+    reading == null -> Text("…", style = MaterialTheme.typography.bodyMedium, color = c.dim)
+    else -> {
+      if (reading.text.isNotBlank()) Text(reading.text, style = MaterialTheme.typography.bodyMedium, color = if (reading.failed) c.dim else c.ink)
+      Figures(reading.figures)
+      for (line in reading.list) Text("•  $line", style = MaterialTheme.typography.bodySmall, color = c.ink)
+      reading.at?.let { Text(checkedAt(it), style = MaterialTheme.typography.labelSmall, color = c.dim) }
+      reading.source?.takeIf { it.startsWith("https://") }?.let { url ->
+        Text(
+            "Source: " + (android.net.Uri.parse(url).host ?: url),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.tintOpen,
+            modifier = Modifier.clickable { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) },
+        )
+      }
+    }
+  }
+  infoLine(row.tool, row.every, row.refresh)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.dim) }
+}
+
+/** Figures side by side, as the web's stat boxes: a small label, the value's first word large. */
+@Composable
+private fun Figures(figures: List<app.jarvis.glasses.hub.Figure>) {
+  if (figures.isEmpty()) return
+  val c = Even.colors
+  FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    for (f in figures) {
+      val (big, rest) = splitFigure(f.value)
+      Column(Modifier.widthIn(min = 128.dp).clip(Even.corner).background(c.chip).padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Text(f.label, style = MaterialTheme.typography.labelSmall, color = c.dim)
+        Row(verticalAlignment = Alignment.Bottom) {
+          Text(big, style = MaterialTheme.typography.headlineSmall)
+          if (rest.isNotEmpty()) Text(" $rest", style = MaterialTheme.typography.bodyMedium, color = c.dim, modifier = Modifier.padding(bottom = 2.dp))
+        }
+      }
+    }
+  }
 }
 
 private fun statusText(s: Talk.Status, live: LiveVoice.State): String =
@@ -622,19 +730,3 @@ private fun More(panel: Panel, row: PanelRow, press: Press) {
 }
 
 private fun fmt(d: Double) = if (d % 1.0 == 0.0) d.toInt().toString() else "%.1f".format(d)
-
-private fun iconFor(name: String): ImageVector =
-    when (name) {
-      "light", "power", "plug", "fan", "scene", "press" -> Glyphs.Bulb
-      "lock", "unlock" -> Icons.Outlined.Lock
-      "gate", "garage", "door", "window", "blind" -> Glyphs.Gate
-      "temp", "climate", "drop", "weather", "sensor" -> Glyphs.Thermo
-      "camera" -> Glyphs.Camera
-      "car", "route" -> Icons.Outlined.Place
-      "music", "play" -> Icons.Outlined.PlayArrow
-      "alarm", "alert", "motion" -> Icons.Outlined.Notifications
-      "calendar", "clock" -> Icons.Outlined.DateRange
-      "mail" -> Icons.Outlined.Email
-      "chat" -> Glyphs.Chat
-      else -> Glyphs.Tiles
-    }

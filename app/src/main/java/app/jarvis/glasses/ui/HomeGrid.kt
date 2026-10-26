@@ -3,6 +3,7 @@ package app.jarvis.glasses.ui
 import app.jarvis.glasses.hub.Panel
 import app.jarvis.glasses.hub.PanelAction
 import app.jarvis.glasses.hub.PanelRow
+import app.jarvis.glasses.hub.Reading
 
 // Home as the Even app's grid: every tile one size, two to a row, and moved as on Jarvis's web app
 // (src/app/ui/HomeWall.ts): a panel by its title, a thing within its panel, never from one panel to
@@ -104,15 +105,56 @@ internal fun shortestOrder(old: List<String>, new: List<String>): List<String> {
   return new
 }
 
-/** What a tile shows, so every tile fits one size: a name, one line of state, at most one button. */
-internal data class Face(val labelLines: Int, val status: String, val warning: Boolean, val button: PanelAction?, val more: Boolean)
+/**
+ * What a tile shows, so every tile fits one size: a name, its state, at most one button. The state
+ * is one line, or up to three for a reading with no button (the web shows four). [badge] and [bar]
+ * are a car's battery.
+ */
+internal data class Face(
+    val labelLines: Int,
+    val status: String,
+    val statusLines: Int,
+    val warning: Boolean,
+    val faint: Boolean,
+    val button: PanelAction?,
+    val more: Boolean,
+    val badge: String? = null,
+    val bar: Float? = null,
+    val low: Boolean = false,
+)
 
-internal fun faceOf(row: PanelRow): Face {
+/** Under this a battery is low: its badge and bar turn red, as on the web. */
+internal const val LOW_BATTERY = 20.0
+
+internal fun faceOf(row: PanelRow, reading: Reading? = null): Face {
   val buttons = row.actions.filter { it.input == null }
-  val figures = row.tiles.joinToString(" · ") { "${it.label} ${it.value}" }
-  val status = row.note ?: row.value.ifEmpty { figures }
   val button = buttons.firstOrNull()
-  val controls = row.more?.let { it.members != null || it.climate != null || it.actions != null || it.level != null } == true
-  val more = controls || buttons.size > 1 || row.tiles.isNotEmpty() || (row.note != null && row.value.isNotEmpty())
-  return Face(if (button != null) 1 else 2, status, row.note != null, button, more)
+  val figures = row.tiles.joinToString(" · ") { "${it.label} ${it.value}" }
+  val read = row.read && row.note == null && row.value.isEmpty()
+  val status =
+      when {
+        row.note != null -> row.note
+        row.value.isNotEmpty() -> row.value
+        read && reading == null -> "…"
+        read -> reading!!.text.ifBlank { reading.figures.joinToString(" · ") { "${it.label} ${it.value}" } }.ifBlank { "…" }
+        else -> figures
+      }
+  val low = row.level != null && row.level < LOW_BATTERY
+  val m = row.more
+  val controls = m != null && (m.members != null || m.climate != null || m.actions != null || m.level != null || m.history || m.alert != null || m.map != null)
+  val more =
+      controls || buttons.size > 1 || row.tiles.isNotEmpty() || (row.note != null && row.value.isNotEmpty()) || row.read ||
+          row.actions.any { it.input != null } || row.alerts.isNotEmpty()
+  return Face(
+      labelLines = if (button != null || read) 1 else 2,
+      status = status,
+      statusLines = if (read && button == null) 3 else 1,
+      warning = row.note != null,
+      faint = read && reading?.failed == true,
+      button = button,
+      more = more,
+      badge = row.level?.let { "${it.toInt()}%" },
+      bar = row.level?.let { (it / 100.0).toFloat().coerceIn(0f, 1f) },
+      low = low,
+  )
 }
