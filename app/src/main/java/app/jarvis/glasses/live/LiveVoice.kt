@@ -156,7 +156,7 @@ class LiveVoice(
         while (isActive) {
           delay(1_000)
           val quiet = System.currentTimeMillis() - r.lastActivity
-          if ((!r.working && quiet > QUIET_MS) || quiet > WORKING_MS) ended.complete(Unit)
+          if ((!r.working && quiet > QUIET_MS) || quiet > WORKING_MS || r.saidGoodbye()) ended.complete(Unit)
         }
       }
       ended.await()

@@ -1,5 +1,6 @@
 package app.jarvis.glasses.live
 
+import app.jarvis.glasses.conversation.Phrases
 import app.jarvis.glasses.jarvis.SseParser
 import app.jarvis.glasses.jarvis.Turn
 import kotlinx.coroutines.CancellationException
@@ -44,6 +45,19 @@ class LiveRelay(
 
   fun seed(history: List<Turn>) {
     _turns.value = history
+    seeded = history.size
+  }
+
+  private var seeded = 0
+
+  /**
+   * The wearer said a closing ("thanks", "bye", "dah") in this session and things have been quiet
+   * for [AFTER_CLOSING_MS], so Jarvis's goodbye has finished: time to hang up.
+   */
+  fun saidGoodbye(): Boolean {
+    if (working || now() - lastActivity < AFTER_CLOSING_MS) return false
+    val lastUser = _turns.value.drop(seeded).lastOrNull { it.role == "user" } ?: return false
+    return Phrases.isStop(lastUser.text)
   }
 
   fun onMessage(raw: String) {
@@ -98,6 +112,8 @@ class LiveRelay(
   }
 
   companion object {
+    const val AFTER_CLOSING_MS = 2_000L
+
     private const val WENT_WRONG = "Tell the user something went wrong on the way to your backend."
 
     /** commentary.append and thinking.append are each capped at 500 tokens. */

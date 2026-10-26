@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -76,6 +77,27 @@ class LiveRelayTest {
     relay(Sent(), emptyList(), asked).onMessage("""{"type":"session.delegation.created","delegation":{"id":"d1","target":"server"}}""")
     advanceUntilIdle()
     assertTrue(asked.isEmpty())
+  }
+
+  @Test
+  fun aGoodbyeEndsTheSessionOnceJarvisHasFinished() = runTest {
+    val r = relay(Sent(), emptyList())
+    // A goodbye from an earlier conversation, carried in as history, does not count.
+    r.seed(listOf(Turn.user("thanks"), Turn.jarvis("You're welcome.")))
+    assertFalse(r.saidGoodbye())
+    r.onMessage("""{"type":"session.input_transcript.delta","delta":"Terima kasih."}""")
+    assertFalse(r.saidGoodbye()) // just said: Jarvis may still answer
+    r.onMessage("""{"type":"session.output_transcript.delta","delta":"Sama-sama!"}""")
+    testScheduler.advanceTimeBy(LiveRelay.AFTER_CLOSING_MS + 1)
+    assertTrue(r.saidGoodbye())
+  }
+
+  @Test
+  fun aQuestionAfterThanksKeepsTheSession() = runTest {
+    val r = relay(Sent(), emptyList())
+    r.onMessage("""{"type":"session.input_transcript.delta","delta":"thanks, and what's the weather?"}""")
+    testScheduler.advanceTimeBy(LiveRelay.AFTER_CLOSING_MS + 1)
+    assertFalse(r.saidGoodbye())
   }
 
   @Test
