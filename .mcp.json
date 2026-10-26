@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mwdat-docs": {
+      "type": "http",
+      "url": "https://mcp.developer.meta.com/wearables"
+    }
+  }
+}
