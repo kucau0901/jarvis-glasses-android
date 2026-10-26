@@ -23,6 +23,8 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "0.1.0"
+    // WebRTC's native libraries are large; current phones (and the Apple-silicon emulator) are arm64.
+    ndk { abiFilters += "arm64-v8a" }
 
     manifestPlaceholders["mwdat_application_id"] =
         localProperties.getProperty("mwdat_application_id", "0")
@@ -49,6 +51,7 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.okhttp)
+  implementation(libs.stream.webrtc)
   implementation(libs.mwdat.core)
   implementation(libs.mwdat.camera)
   debugImplementation(libs.mwdat.mockdevice)

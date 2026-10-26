@@ -13,6 +13,9 @@ glasses, without touching them:
 - **"What am I looking at?"** (or "apa ni?") takes a photo with the glasses camera and sends it
   with the question.
 - **Talk** on the app's notification starts a conversation from the phone.
+- **Live voice** (a switch): GPT-Live through Jarvis instead of question by question, for a
+  natural back-and-forth. It needs Jarvis's `OPENAI_API_KEY`, costs about $0.05 a minute, and
+  closes itself after 30 s of quiet; without a key it falls back to question by question.
 
 Nothing on the Jarvis side changes: the app uses the device API (`docs/api.md` there).
 
@@ -26,6 +29,7 @@ Nothing on the Jarvis side changes: the app uses the device API (`docs/api.md` t
 | The conversation | `conversation/Conversation.kt`: listen → hear → stop? photo? → ask → play → listen again. Forgotten after 10 minutes. |
 | Alerts | WebSocket `/api/v1/events` (`jarvis/AlertSocket.kt`). Acknowledged as seen only when the glasses are connected and the app is free; otherwise Jarvis goes on to the phone's notifications as usual. |
 | Registration, camera, "Hey Meta" | Meta's Wearables Device Access Toolkit 1.0.1: `glasses/GlassesLink.kt`. |
+| Live voice | WebRTC (`live/LiveVoice.kt`): the offer goes to Jarvis's `/api/session`, which opens GPT-Live with its own key. Each tool call (`session.delegation.created`) is relayed to `/api/v1/stream` with the conversation so far, and the answer goes back as `session.commentary.append` (`live/LiveRelay.kt`), as Jarvis's web app does. |
 | Running in a pocket | `JarvisService.kt`, a foreground service (microphone, connected device). |
 
 ## Set up
@@ -98,12 +102,12 @@ something. Mail the moment it arrives would need a change in Jarvis.
 ```
 
 Unit tests cover the event stream, alerts, the WAV header, end-of-speech detection, the phrases,
-and the whole conversation loop with fakes. The Mock Device Kit (`mwdat-mockdevice`, debug builds)
+the whole conversation loop with fakes, and the live relay. The Mock Device Kit (`mwdat-mockdevice`, debug builds)
 stands in for glasses for registration and the camera. `.mcp.json` connects Meta's DAT docs server
 for looking up the toolkit's API.
 
-Not covered by tests, to try on the glasses: the headset routing, "Hey Meta", the camera, and an
-alert arriving with the phone locked (`curl` a `POST /api/v1/notify`).
+Not covered by tests, to try on the glasses: the headset routing, "Hey Meta", the camera, a live
+session's WebRTC, and an alert arriving with the phone locked (`curl` a `POST /api/v1/notify`).
 
 ## Limits
 
@@ -111,4 +115,6 @@ alert arriving with the phone locked (`curl` a `POST /api/v1/notify`).
   and can't be published to production yet. This app is for your own glasses.
 - Only a headset named like Meta glasses ("Ray-Ban", "Meta", "Oakley") counts, so a car or
   earbuds connected at the same time are not used.
-- Live voice (GPT-Live) is not in this version; every turn is a push-to-talk-style question.
+- Alerts are said question-by-question even with Live voice on, and not at all while a live
+  session is open (they go to the phone instead).
+- arm64 phones only (the WebRTC libraries are large).

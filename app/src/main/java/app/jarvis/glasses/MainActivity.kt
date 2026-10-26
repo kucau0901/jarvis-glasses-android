@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.jarvis.glasses.conversation.Conversation
+import app.jarvis.glasses.live.LiveVoice
 import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.core.types.Permission
 import com.meta.wearable.dat.core.voiceinvocations.isVoiceInvocationsIntent
@@ -82,7 +83,7 @@ class MainActivity : ComponentActivity() {
 
   /** Bluetooth first: the toolkit must not boot before it (see [app.jarvis.glasses.glasses.GlassesLink]). */
   private fun onPermissions() {
-    if (granted(Manifest.permission.BLUETOOTH_CONNECT)) jarvis.link.start(onHeyMeta = { jarvis.conversation.start() })
+    if (granted(Manifest.permission.BLUETOOTH_CONNECT)) jarvis.link.start(onHeyMeta = { jarvis.talk() })
     if (granted(Manifest.permission.RECORD_AUDIO) && granted(Manifest.permission.BLUETOOTH_CONNECT)) JarvisService.start(this)
   }
 
@@ -112,12 +113,18 @@ class MainActivity : ComponentActivity() {
         val socket by app.alerts.state.collectAsStateWithLifecycle()
         val status by app.conversation.status.collectAsStateWithLifecycle()
         val note by app.conversation.note.collectAsStateWithLifecycle()
-        val turns by app.conversation.turns.collectAsStateWithLifecycle()
+        val talked by app.conversation.turns.collectAsStateWithLifecycle()
+        val liveState by app.live.state.collectAsStateWithLifecycle()
+        val liveTurns by app.live.turns.collectAsStateWithLifecycle()
+        val liveNote by app.live.note.collectAsStateWithLifecycle()
+        val turns = if (liveState != LiveVoice.State.OFF) liveTurns else talked
+        val idle = status == Conversation.Status.IDLE && liveState == LiveVoice.State.OFF
         var url by remember { mutableStateOf(app.prefs.url) }
         var token by remember { mutableStateOf(app.prefs.token) }
         var check by remember { mutableStateOf("") }
         var followUps by remember { mutableStateOf(app.prefs.followUps) }
         var speakAlerts by remember { mutableStateOf(app.prefs.speakAlerts) }
+        var live by remember { mutableStateOf(app.prefs.live) }
         val scope = rememberCoroutineScope()
 
         LazyColumn(
@@ -131,16 +138,25 @@ class MainActivity : ComponentActivity() {
               Line("Meta AI", if (registered) "connected" else "not connected")
               Line("Glasses camera", if (cameraAllowed) "allowed" else "not allowed")
               Line("Alerts", socket.name.lowercase())
-              Line("Now", statusText(status))
+              Line("Now", if (liveState == LiveVoice.State.OFF) statusText(status) else "live, ${liveState.name.lowercase()}")
+              if (liveNote.isNotEmpty()) Text("Live voice: $liveNote", style = MaterialTheme.typography.bodySmall)
               if (note.isNotEmpty()) Text(note, style = MaterialTheme.typography.bodySmall)
             }
           }
           item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-              Button(onClick = { JarvisService.start(this@MainActivity, JarvisService.ACTION_TALK) }, enabled = status == Conversation.Status.IDLE) {
+              Button(onClick = { JarvisService.start(this@MainActivity, JarvisService.ACTION_TALK) }, enabled = idle) {
                 Text("Talk")
               }
-              OutlinedButton(onClick = { app.conversation.stop() }, enabled = status != Conversation.Status.IDLE) { Text("Stop") }
+              OutlinedButton(
+                  onClick = {
+                    app.conversation.stop()
+                    app.live.stop()
+                  },
+                  enabled = !idle,
+              ) {
+                Text("Stop")
+              }
             }
           }
           item { Text("Jarvis", style = MaterialTheme.typography.titleMedium) }
@@ -186,6 +202,7 @@ class MainActivity : ComponentActivity() {
             }
           }
           item { Toggle("Listen for a follow-up after each answer", followUps) { followUps = it; app.prefs.followUps = it } }
+          item { Toggle("Live voice (GPT-Live, billed by the minute)", live) { live = it; app.prefs.live = it } }
           item { Toggle("Say alerts in the glasses and listen for a reply", speakAlerts) { speakAlerts = it; app.prefs.speakAlerts = it } }
           if (!ignoringBatteryLimits()) {
             item {

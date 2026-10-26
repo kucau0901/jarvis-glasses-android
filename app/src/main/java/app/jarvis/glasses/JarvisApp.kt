@@ -8,6 +8,7 @@ import app.jarvis.glasses.glasses.GlassesLink
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.AlertSocket
 import app.jarvis.glasses.jarvis.JarvisClient
+import app.jarvis.glasses.live.LiveVoice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +22,7 @@ class JarvisApp : Application() {
   lateinit var link: GlassesLink
   lateinit var client: JarvisClient
   lateinit var conversation: Conversation
+  lateinit var live: LiveVoice
   lateinit var alerts: AlertSocket
 
   override fun onCreate() {
@@ -30,18 +32,37 @@ class JarvisApp : Application() {
     link = GlassesLink(this, scope)
     client = JarvisClient({ prefs.url }, { prefs.token })
     conversation = Conversation(scope, audio, audio, link, client, followUps = { prefs.followUps })
+    live = LiveVoice(this, client, audio, scope)
     alerts = AlertSocket(client, scope, ::onAlert)
     // Jarvis counts this app as a screen in front of someone only while the glasses are connected.
     scope.launch { audio.connected.collect { alerts.setVisible(it) } }
   }
 
   /**
+   * "Hey Meta, open Jarvis", Talk: a live session when Live voice is on, falling back to a
+   * push-to-talk conversation when Jarvis can't open one (no OpenAI key, say).
+   */
+  fun talk() {
+    if (conversation.isBusy || live.state.value != LiveVoice.State.OFF) return
+    if (!prefs.live) {
+      conversation.start()
+      return
+    }
+    live.start(
+        conversation.recent(),
+        onFail = { conversation.start() },
+        onEnd = conversation::adopt,
+    )
+  }
+
+  /**
    * Jarvis speaking first. Said in the glasses, then listened for a reply, when they are connected
-   * and no conversation is going; otherwise not acknowledged, so Jarvis carries on to the phone's
+   * and nothing else is going; otherwise not acknowledged, so Jarvis carries on to the phone's
    * notifications as it would without this app.
    */
   private fun onAlert(alert: Alert): Boolean {
     if (!prefs.speakAlerts || !alert.speak || !audio.connected.value) return false
+    if (live.state.value != LiveVoice.State.OFF) return false
     return conversation.start(opening = alert)
   }
 }
@@ -65,6 +86,11 @@ class Prefs(context: Context) {
   var followUps: Boolean
     get() = p.getBoolean("followUps", true)
     set(v) = p.edit().putBoolean("followUps", v).apply()
+
+  /** Talk through a GPT-Live session instead of question by question (needs Jarvis's OpenAI key, billed by the minute). */
+  var live: Boolean
+    get() = p.getBoolean("live", false)
+    set(v) = p.edit().putBoolean("live", v).apply()
 
   /** Say Jarvis's alerts in the glasses and listen for a reply. */
   var speakAlerts: Boolean

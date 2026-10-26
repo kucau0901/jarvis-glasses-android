@@ -80,6 +80,42 @@ class JarvisClientTest {
   }
 
   @Test
+  fun aLiveSessionSendsTheOfferAndReturnsTheAnswer() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"sdp":"v=0 answer","sessionId":"s1","voice":"cedar","restoredTurns":1}"""))
+    assertEquals("v=0 answer", client.liveSession("v=0 offer", listOf(Turn.user("hi"))))
+    val req = server.takeRequest()
+    assertEquals("/api/session", req.path)
+    val body = kotlinx.serialization.json.Json.parseToJsonElement(req.body.readUtf8()).jsonObject
+    assertEquals("v=0 offer", body["sdp"]!!.jsonPrimitive.content)
+    assertEquals("mobile", body["client"]!!.jsonPrimitive.content)
+    assertEquals(1, body["history"]!!.jsonArray.size)
+  }
+
+  @Test
+  fun aLiveSessionWithoutAKeySaysSo() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(503).setBody("""{"error":"OPENAI_API_KEY is not configured"}"""))
+    try {
+      client.liveSession("v=0", emptyList())
+      fail("expected a failure")
+    } catch (e: JarvisClient.JarvisException) {
+      assertEquals("OPENAI_API_KEY is not configured", e.message)
+    }
+  }
+
+  @Test
+  fun aDelegationPostsTheTranscriptToTheStream() = runBlocking {
+    server.enqueue(MockResponse().setBody("data: {\"type\":\"result\",\"text\":\"Done.\"}"))
+    val seen = mutableListOf<String>()
+    client.delegate("d1", listOf(Turn.user("lock the car"))) { seen += it["type"]!!.jsonPrimitive.content }
+    assertEquals(listOf("result"), seen)
+    val req = server.takeRequest()
+    assertEquals("/api/v1/stream", req.path)
+    val body = kotlinx.serialization.json.Json.parseToJsonElement(req.body.readUtf8()).jsonObject
+    assertEquals("d1", body["delegationId"]!!.jsonPrimitive.content)
+    assertEquals("lock the car", body["transcript"]!!.jsonArray[0].jsonObject["text"]!!.jsonPrimitive.content)
+  }
+
+  @Test
   fun failuresSayWhatToFix() {
     assertEquals("Jarvis didn't accept the device token", JarvisClient.errorOf(401, ""))
     assertEquals("text is required", JarvisClient.errorOf(400, """{"error":"text is required"}"""))

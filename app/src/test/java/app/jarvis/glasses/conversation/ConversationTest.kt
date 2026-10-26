@@ -171,6 +171,25 @@ class ConversationTest {
   }
 
   @Test
+  fun stoppingMidAnswerStopsThePlaying() = runTest {
+    var finished = 0
+    val slowMouth =
+        object : Mouth by FakeMouth() {
+          override suspend fun play(audio: ByteArray) {
+            kotlinx.coroutines.delay(5_000)
+            finished++
+          }
+        }
+    val c = conversation(FakeEars("tell me a story"), slowMouth, FakeBrain())
+    c.start()
+    testScheduler.advanceTimeBy(1_000)
+    c.stop()
+    advanceUntilIdle()
+    assertEquals(0, finished)
+    assertEquals(Conversation.Status.IDLE, c.status.value)
+  }
+
+  @Test
   fun phrases() {
     assertTrue(Phrases.wantsPhoto("Jarvis, what's this?"))
     assertTrue(Phrases.wantsPhoto("Apa ni?"))

@@ -25,11 +25,12 @@ class JarvisService : Service() {
     when (intent?.action) {
       ACTION_STOP -> {
         jarvis.conversation.stop()
+        jarvis.live.stop()
         jarvis.alerts.stop()
         stopSelf()
         return START_NOT_STICKY
       }
-      ACTION_TALK -> jarvis.conversation.start()
+      ACTION_TALK -> jarvis.talk()
     }
     startForeground(
         NOTIFICATION,

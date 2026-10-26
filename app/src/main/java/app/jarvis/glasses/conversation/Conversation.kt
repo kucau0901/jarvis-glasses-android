@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -94,6 +95,15 @@ class Conversation(
     job?.cancel()
   }
 
+  /** The conversation so far, unless it has been forgotten: what a live session starts from. */
+  fun recent(): List<Turn> = if (now() - lastActive > forgetAfterMs) emptyList() else _turns.value
+
+  /** Takes on what was said in a live session, so a push-to-talk follow-up knows it. */
+  fun adopt(turns: List<Turn>) {
+    _turns.value = turns.takeLast(maxTurns)
+    lastActive = now()
+  }
+
   private suspend fun run(opening: Alert?) {
     if (now() - lastActive > forgetAfterMs) _turns.value = emptyList()
     try {
@@ -139,14 +149,15 @@ class Conversation(
     }
   }
 
-  private suspend fun answer(heard: String, photo: ByteArray?) {
+  // Its own scope, so stopping the conversation stops the playing too.
+  private suspend fun answer(heard: String, photo: ByteArray?) = coroutineScope {
     val context = _turns.value
     remember(Turn.user(heard))
     _note.value = ""
     // Sentences are played as they arrive, while the rest of the answer is still coming.
     val clips = Channel<ByteArray>(Channel.UNLIMITED)
     var spoke = false
-    val player = scope.launch {
+    val player = launch {
       for (clip in clips) {
         _status.value = Status.SPEAKING
         mouth.play(clip)

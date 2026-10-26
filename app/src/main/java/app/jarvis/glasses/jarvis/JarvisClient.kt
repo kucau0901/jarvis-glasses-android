@@ -64,35 +64,72 @@ class JarvisClient(
       onEvent: suspend (VoiceEvent) -> Unit,
   ): VoiceEvent.Answer =
       withContext(Dispatchers.IO) {
-        val body = askBody(text, context, photoJpeg)
-        val req =
-            request("/api/v1/voice")
-                .post(body.toString().toRequestBody(JSON))
-                .header("Accept", "text/event-stream")
-                .build()
         var answer: VoiceEvent.Answer? = null
-        http.newCall(req).execute().use { res ->
-          if (!res.isSuccessful) throw JarvisException(errorOf(res.code, res.body?.string().orEmpty()))
-          val events = mutableListOf<VoiceEvent>()
-          val parser = SseParser { o -> VoiceEvent.from(o)?.let(events::add) }
-          val source = res.body?.source() ?: throw JarvisException("Jarvis sent no answer")
-          while (true) {
-            val line = source.readUtf8Line() ?: break
-            parser.line(line)
-            for (e in events) {
-              if (e is VoiceEvent.Answer) answer = e
-              onEvent(e)
-            }
-            events.clear()
-          }
-          parser.flush()
-          for (e in events) {
-            if (e is VoiceEvent.Answer) answer = e
-            onEvent(e)
-          }
+        stream("/api/v1/voice", askBody(text, context, photoJpeg)) { o ->
+          val e = VoiceEvent.from(o) ?: return@stream
+          if (e is VoiceEvent.Answer) answer = e
+          onEvent(e)
         }
         answer ?: throw JarvisException("Jarvis's answer ended early")
       }
+
+  /**
+   * The work behind a live session's delegation: the conversation so far to `/api/v1/stream`,
+   * whose events ([LiveRelay] reads them) are streamed to [onEvent].
+   */
+  suspend fun delegate(delegationId: String, transcript: List<Turn>, onEvent: suspend (JsonObject) -> Unit) =
+      withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+          put("delegationId", delegationId)
+          put("transcript", turnsJson(transcript))
+        }
+        stream("/api/v1/stream", body, onEvent)
+      }
+
+  /**
+   * Opens a GPT-Live session: Jarvis sends this offer to OpenAI with its own key and returns the
+   * answer's SDP, so no key reaches the phone. Needs `OPENAI_API_KEY` on the Jarvis side.
+   */
+  suspend fun liveSession(offerSdp: String, history: List<Turn>): String =
+      withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+          put("sdp", offerSdp)
+          put("history", turnsJson(history))
+          put("client", "mobile")
+        }
+        val req = request("/api/session").post(body.toString().toRequestBody(JSON)).build()
+        http.newCall(req).execute().use { res ->
+          val text = res.body?.string().orEmpty()
+          if (!res.isSuccessful) throw JarvisException(errorOf(res.code, text))
+          (SseParser.json.parseToJsonElement(text).jsonObject["sdp"] as? JsonPrimitive)?.contentOrNull
+              ?: throw JarvisException("Jarvis sent no session")
+        }
+      }
+
+  /** How long a live session was open, for Jarvis's Usage page (it bills by the minute). */
+  suspend fun reportLive(seconds: Int) {
+    withContext(Dispatchers.IO) {
+      val body = buildJsonObject { put("seconds", seconds) }
+      runCatching { http.newCall(request("/api/v1/usage/live").post(body.toString().toRequestBody(JSON)).build()).execute().close() }
+    }
+  }
+
+  private suspend fun stream(path: String, body: JsonObject, onEvent: suspend (JsonObject) -> Unit) {
+    val req = request(path).post(body.toString().toRequestBody(JSON)).header("Accept", "text/event-stream").build()
+    http.newCall(req).execute().use { res ->
+      if (!res.isSuccessful) throw JarvisException(errorOf(res.code, res.body?.string().orEmpty()))
+      val frames = mutableListOf<JsonObject>()
+      val parser = SseParser(frames::add)
+      val source = res.body?.source() ?: throw JarvisException("Jarvis sent no answer")
+      while (true) {
+        val line = source.readUtf8Line()
+        if (line == null) parser.flush() else parser.line(line)
+        for (f in frames) onEvent(f)
+        frames.clear()
+        if (line == null) break
+      }
+    }
+  }
 
   /**
    * Jarvis's voice for [text] (an alert), as mp3; null when Settings says the device speaks
@@ -135,12 +172,7 @@ class JarvisClient(
     /** The JSON body of a text question: `{text, context, reply, format, images?}`. */
     fun askBody(text: String, context: List<Turn>, photoJpeg: ByteArray?): JsonObject = buildJsonObject {
       put("text", text)
-      put(
-          "context",
-          buildJsonArray {
-            for (t in context) add(buildJsonObject { put("role", t.role); put("text", t.text) })
-          },
-      )
+      put("context", turnsJson(context))
       put("reply", "audio")
       put("format", "mp3")
       if (photoJpeg != null) {
@@ -149,6 +181,10 @@ class JarvisClient(
             JsonArray(listOf(JsonPrimitive("data:image/jpeg;base64," + java.util.Base64.getEncoder().encodeToString(photoJpeg)))),
         )
       }
+    }
+
+    private fun turnsJson(turns: List<Turn>) = buildJsonArray {
+      for (t in turns) add(buildJsonObject { put("role", t.role); put("text", t.text) })
     }
 
     /** Jarvis's own words for a failure when it gave some (`{"error": …}`), else the status. */
