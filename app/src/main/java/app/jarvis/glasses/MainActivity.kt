@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -130,6 +131,7 @@ class MainActivity : ComponentActivity() {
         var followUps by remember { mutableStateOf(app.prefs.followUps) }
         var speakAlerts by remember { mutableStateOf(app.prefs.speakAlerts) }
         var live by remember { mutableStateOf(app.prefs.live) }
+        var quiet by remember { mutableStateOf(app.prefs.liveQuietSeconds) }
         val scope = rememberCoroutineScope()
 
         LazyColumn(
@@ -213,6 +215,18 @@ class MainActivity : ComponentActivity() {
           }
           item { Toggle("Listen for a follow-up after each answer", followUps) { followUps = it; app.prefs.followUps = it } }
           item { Toggle("Live voice (GPT-Live, billed by the minute)", live) { live = it; app.prefs.live = it } }
+          if (live) {
+            item {
+              Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Hang up after this much quiet", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                  for (s in QUIET_CHOICES) {
+                    FilterChip(selected = quiet == s, onClick = { quiet = s; app.prefs.liveQuietSeconds = s }, label = { Text("$s s") })
+                  }
+                }
+              }
+            }
+          }
           item { Toggle("Say alerts in the glasses and listen for a reply", speakAlerts) { speakAlerts = it; app.prefs.speakAlerts = it } }
           if (!ignoringBatteryLimits()) {
             item {
@@ -263,6 +277,7 @@ class MainActivity : ComponentActivity() {
       }
 
   companion object {
+    private val QUIET_CHOICES = listOf(8, 10, 15, 20, 30)
     private val PHONE_PERMISSIONS =
         arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
   }

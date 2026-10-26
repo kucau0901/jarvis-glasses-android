@@ -37,7 +37,7 @@ import org.webrtc.audio.JavaAudioDeviceModule
  * and [LiveRelay] does the rest. Needs `OPENAI_API_KEY` on the Jarvis side; [start] reports
  * failure so the caller can fall back to a push-to-talk conversation.
  *
- * It bills by the minute, so it closes itself after [QUIET_MS] with nobody speaking, and at most
+ * It bills by the minute, so it closes itself after [quietMs] with nobody speaking, and at most
  * [WORKING_MS] into a slow answer, as the web app does (src/app/quiet.ts there).
  */
 class LiveVoice(
@@ -45,6 +45,8 @@ class LiveVoice(
     private val client: JarvisClient,
     private val audio: GlassesAudio,
     private val scope: CoroutineScope,
+    /** How long a quiet session stays open: it bills by the minute. */
+    private val quietMs: () -> Long = { QUIET_MS },
 ) {
   enum class State { OFF, CONNECTING, LIVE }
 
@@ -156,7 +158,7 @@ class LiveVoice(
         while (isActive) {
           delay(1_000)
           val quiet = System.currentTimeMillis() - r.lastActivity
-          if ((!r.working && quiet > QUIET_MS) || quiet > WORKING_MS || r.saidGoodbye()) ended.complete(Unit)
+          if ((!r.working && quiet > quietMs()) || quiet > WORKING_MS || r.saidGoodbye()) ended.complete(Unit)
         }
       }
       ended.await()

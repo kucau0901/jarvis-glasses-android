@@ -32,7 +32,7 @@ class JarvisApp : Application() {
     link = GlassesLink(this, scope)
     client = JarvisClient({ prefs.url }, { prefs.token })
     conversation = Conversation(scope, audio, audio, link, client, followUps = { prefs.followUps })
-    live = LiveVoice(this, client, audio, scope)
+    live = LiveVoice(this, client, audio, scope, quietMs = { prefs.liveQuietSeconds * 1000L })
     alerts = AlertSocket(client, scope, ::onAlert)
     // Jarvis counts this app as a screen in front of someone only while the glasses are connected.
     scope.launch { audio.connected.collect { alerts.setVisible(it) } }
@@ -91,6 +91,11 @@ class Prefs(context: Context) {
   var live: Boolean
     get() = p.getBoolean("live", false)
     set(v) = p.edit().putBoolean("live", v).apply()
+
+  /** Seconds of quiet before a live session hangs up (it bills by the minute). */
+  var liveQuietSeconds: Int
+    get() = p.getInt("liveQuietSeconds", 10)
+    set(v) = p.edit().putInt("liveQuietSeconds", v).apply()
 
   /** Say Jarvis's alerts in the glasses and listen for a reply. */
   var speakAlerts: Boolean
