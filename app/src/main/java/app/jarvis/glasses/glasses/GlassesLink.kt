@@ -2,6 +2,7 @@ package app.jarvis.glasses.glasses
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
@@ -46,6 +47,10 @@ class GlassesLink(private val context: Context, private val scope: CoroutineScop
   private val _registered = MutableStateFlow(false)
   val registered: StateFlow<Boolean> = _registered
 
+  private val _problem = MutableStateFlow("")
+  /** Why connecting to Meta AI last failed, if it did. */
+  val problem: StateFlow<String> = _problem
+
   @Volatile private var started = false
 
   fun start(onHeyMeta: () -> Unit) {
@@ -53,15 +58,41 @@ class GlassesLink(private val context: Context, private val scope: CoroutineScop
     Wearables.initialize(context.applicationContext).fold(
         onSuccess = {
           started = true
-          scope.launch { Wearables.registrationState.collect { _registered.value = it == RegistrationState.REGISTERED } }
+          scope.launch {
+            Wearables.registrationState.collect {
+              Log.i(TAG, "registration: $it")
+              _registered.value = it == RegistrationState.REGISTERED
+              if (_registered.value) _problem.value = ""
+            }
+          }
+          scope.launch {
+            Wearables.registrationErrorStream.collect {
+              Log.w(TAG, "registration failed: ${it.description}")
+              _problem.value = it.description
+            }
+          }
           scope.launch { heyMeta(onHeyMeta) }
         },
-        onFailure = { error, _ -> Log.e(TAG, "Wearables toolkit did not start: ${error.description}") },
+        onFailure = { error, _ ->
+          Log.e(TAG, "Wearables toolkit did not start: ${error.description}")
+          _problem.value = error.description
+        },
     )
   }
 
   fun register(activity: Activity) {
     if (started) Wearables.startRegistration(activity)
+  }
+
+  /**
+   * A registration Meta AI starts itself (from its list of apps) arrives as an intent; it is
+   * continued here. Anything else is ignored, so every intent can be passed.
+   */
+  fun handle(activity: Activity, intent: Intent) {
+    if (!started) return
+    Wearables.handleIntent(intent) { request ->
+      request.continueRegistration(activity).onFailure { error, _ -> _problem.value = error.description }
+    }
   }
 
   suspend fun cameraAllowed(): Boolean {

@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
+    jarvis.link.handle(this, intent)
     if (isVoiceInvocationsIntent(intent)) onHeyMeta()
   }
 
@@ -83,7 +84,10 @@ class MainActivity : ComponentActivity() {
 
   /** Bluetooth first: the toolkit must not boot before it (see [app.jarvis.glasses.glasses.GlassesLink]). */
   private fun onPermissions() {
-    if (granted(Manifest.permission.BLUETOOTH_CONNECT)) jarvis.link.start(onHeyMeta = { jarvis.talk() })
+    if (granted(Manifest.permission.BLUETOOTH_CONNECT)) {
+      jarvis.link.start(onHeyMeta = { jarvis.talk() })
+      jarvis.link.handle(this, intent)
+    }
     if (granted(Manifest.permission.RECORD_AUDIO) && granted(Manifest.permission.BLUETOOTH_CONNECT)) JarvisService.start(this)
   }
 
@@ -110,6 +114,7 @@ class MainActivity : ComponentActivity() {
       Surface(Modifier.fillMaxSize()) {
         val connected by app.audio.connected.collectAsStateWithLifecycle()
         val registered by app.link.registered.collectAsStateWithLifecycle()
+        val metaProblem by app.link.problem.collectAsStateWithLifecycle()
         val socket by app.alerts.state.collectAsStateWithLifecycle()
         val status by app.conversation.status.collectAsStateWithLifecycle()
         val note by app.conversation.note.collectAsStateWithLifecycle()
@@ -136,6 +141,7 @@ class MainActivity : ComponentActivity() {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
               Line("Glasses headset", if (connected) "connected" else "not connected")
               Line("Meta AI", if (registered) "connected" else "not connected")
+              if (metaProblem.isNotEmpty()) Text("Meta AI: $metaProblem", style = MaterialTheme.typography.bodySmall)
               Line("Glasses camera", if (cameraAllowed) "allowed" else "not allowed")
               Line("Alerts", socket.name.lowercase())
               Line("Now", if (liveState == LiveVoice.State.OFF) statusText(status) else "live, ${liveState.name.lowercase()}")
