@@ -26,17 +26,20 @@ android {
     // WebRTC's native libraries are large; current phones (and the Apple-silicon emulator) are arm64.
     ndk { abiFilters += "arm64-v8a" }
 
-    manifestPlaceholders["mwdat_application_id"] =
-        localProperties.getProperty("mwdat_application_id", "0")
-    manifestPlaceholders["mwdat_client_token"] =
-        localProperties.getProperty("mwdat_client_token", "0")
+    // As string resources: a numeric android:value in the manifest is read back as an Integer,
+    // which the toolkit sees as no ID at all (facebook/meta-wearables-dat-android#80).
+    resValue("string", "mwdat_application_id", localProperties.getProperty("mwdat_application_id", "0"))
+    resValue("string", "mwdat_client_token", localProperties.getProperty("mwdat_client_token", "0"))
   }
 
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
   }
-  buildFeatures { compose = true }
+  buildFeatures {
+    compose = true
+    resValues = true
+  }
 }
 
 dependencies {

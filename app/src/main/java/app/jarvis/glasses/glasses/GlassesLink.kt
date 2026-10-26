@@ -113,13 +113,16 @@ class GlassesLink(private val context: Context, private val scope: CoroutineScop
     var backoff = 500L
     while (scope.isActive) {
       Wearables.registrationState.first { it == RegistrationState.REGISTERED }
+      Log.i(TAG, "voice invocations: opening (dev mode ${Wearables.isDevMode}, devices ${Wearables.devices.value.size})")
       val stream = Wearables.startVoiceInvocationsStream(AutoDeviceSelector())
       try {
         coroutineScope {
+          launch { stream.state.collect { Log.i(TAG, "voice invocations: $it") } }
           launch {
             stream.invocations.collect { invocation ->
               when (invocation) {
                 is LaunchApp -> {
+                  Log.i(TAG, "voice invocations: launch")
                   invocation.responseHandle.sendSuccess(null)
                   onLaunch()
                 }
@@ -127,7 +130,7 @@ class GlassesLink(private val context: Context, private val scope: CoroutineScop
             }
           }
           stream.errors.collect { error ->
-            Log.w(TAG, "voice invocations: ${error.description}")
+            Log.w(TAG, "voice invocations: ${error.name} ${error.description}")
             throw Dropped
           }
         }

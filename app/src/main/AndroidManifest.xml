@@ -21,13 +21,13 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
-        <!-- DAT attestation; "0" in Developer Mode (app/build.gradle.kts). -->
+        <!-- DAT attestation, from local.properties; "0" in Developer Mode (app/build.gradle.kts). -->
         <meta-data
             android:name="com.meta.wearable.mwdat.APPLICATION_ID"
-            android:value="${mwdat_application_id}" />
+            android:value="@string/mwdat_application_id" />
         <meta-data
             android:name="com.meta.wearable.mwdat.CLIENT_TOKEN"
-            android:value="${mwdat_client_token}" />
+            android:value="@string/mwdat_client_token" />
         <!-- Both default to on; nothing here is for Meta's analytics. -->
         <meta-data
             android:name="com.meta.wearable.mwdat.ANALYTICS_OPT_OUT"
