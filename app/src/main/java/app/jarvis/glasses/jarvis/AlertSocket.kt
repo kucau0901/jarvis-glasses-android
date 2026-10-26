@@ -104,6 +104,12 @@ class AlertSocket(
     _state.value = State.OFF
   }
 
+  /** Reconnects with the current address and credential. */
+  fun restart() {
+    stop()
+    start()
+  }
+
   /** Whether the glasses are on and connected, told to Jarvis as the screen's "presence". */
   fun setVisible(on: Boolean) {
     if (visible == on) return

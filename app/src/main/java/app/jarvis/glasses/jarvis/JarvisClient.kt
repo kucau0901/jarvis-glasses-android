@@ -31,6 +31,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 class JarvisClient(
     private val baseUrl: () -> String,
     private val token: () -> String,
+    /** Extra headers for a Jarvis behind Cloudflare Access (its service token); empty for most. */
+    private val gateway: () -> Map<String, String> = { emptyMap() },
     val http: OkHttpClient = defaultHttp(),
 ) : Brain {
   class JarvisException(message: String) : IOException(message)
@@ -84,6 +86,33 @@ class JarvisClient(
           put("transcript", turnsJson(transcript))
         }
         stream("/api/v1/stream", body, onEvent)
+      }
+
+  /**
+   * A typed question, as the web app's Chat tab asks it: the conversation so far, a photo if
+   * attached, streamed back as events (progress, result with links, draft, error).
+   */
+  suspend fun chat(transcript: List<Turn>, photoJpeg: ByteArray?, onEvent: suspend (JsonObject) -> Unit) =
+      withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+          put("delegationId", "typed")
+          put("transcript", turnsJson(transcript))
+          put("surface", "chat")
+          put("origin", buildJsonObject { put("id", "glasses-app"); put("label", "Phone") })
+          if (photoJpeg != null) {
+            put("images", JsonArray(listOf(JsonPrimitive("data:image/jpeg;base64," + java.util.Base64.getEncoder().encodeToString(photoJpeg)))))
+          }
+        }
+        stream("/api/v1/stream", body, onEvent)
+      }
+
+  /** Sends a Gmail draft Jarvis wrote (its `draft` event); needs `mail`. */
+  suspend fun sendDraft(id: String) =
+      withContext(Dispatchers.IO) {
+        val req = request("/api/google/drafts/send").post(buildJsonObject { put("id", id) }.toString().toRequestBody(JSON)).build()
+        http.newCall(req).execute().use { res ->
+          if (!res.isSuccessful) throw JarvisException(errorOf(res.code, res.body?.string().orEmpty()))
+        }
       }
 
   /**
@@ -154,8 +183,12 @@ class JarvisClient(
         }
       }
 
-  internal fun request(path: String): Request.Builder =
-      Request.Builder().url(baseUrl().trimEnd('/') + path).header("Authorization", "Bearer ${token()}")
+  internal fun request(path: String): Request.Builder {
+    if (!Address.usable(baseUrl())) throw JarvisException("Set your Jarvis address in Settings")
+    val b = Request.Builder().url(baseUrl().trimEnd('/') + path).header("Authorization", "Bearer ${token()}")
+    for ((k, v) in gateway()) b.header(k, v)
+    return b
+  }
 
   companion object {
     private val JSON = "application/json".toMediaType()
