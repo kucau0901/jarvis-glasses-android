@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.dp
 import app.jarvis.glasses.chat.Markdown
 import app.jarvis.glasses.chat.Markdown.Block
 import app.jarvis.glasses.chat.Markdown.Span
-import app.jarvis.glasses.chat.Work
+import app.jarvis.glasses.chat.Step
 
 /** One line of an answer, its bold, italic, code and links drawn; a link opens in the browser. */
 private fun annotated(text: String, ink: Color, wash: Color): AnnotatedString = buildAnnotatedString {
@@ -125,13 +125,13 @@ private fun Breathing(on: Boolean, content: @Composable (Modifier) -> Unit) {
  * breathing, finished ones ticked, and "Thinking" while none runs.
  */
 @Composable
-fun WorkingRow(work: Work) {
+fun WorkingRow(steps: List<Step>, thinking: String) {
   val h = Hark.colors
   val ok = Even.colors.on
   Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(start = 4.dp)) {
     Text("Jarvis", style = MaterialTheme.typography.labelSmall, color = h.dim)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-      for (s in work.steps) {
+      for (s in steps) {
         Breathing(s.running) { m ->
           Pill(m) {
             if (!s.running) Text("✓ ", style = MaterialTheme.typography.labelLarge, color = ok)
@@ -139,7 +139,7 @@ fun WorkingRow(work: Work) {
           }
         }
       }
-      if (work.thinks) Breathing(true) { m -> Pill(m) { Text(work.thinking, style = MaterialTheme.typography.labelLarge, color = h.ink) } }
+      if (steps.none { it.running }) Breathing(true) { m -> Pill(m) { Text(thinking, style = MaterialTheme.typography.labelLarge, color = h.ink) } }
     }
   }
 }

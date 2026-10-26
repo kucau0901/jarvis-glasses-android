@@ -153,7 +153,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
       items(drafts, key = { it.id }) { d ->
         DraftCard(d, onSend = { scope.launch { note = runCatching { app.client.sendDraft(d.id) }.fold({ "Sent." }, { it.message ?: "Not sent" }); drafts.remove(d) } }, onDrop = { drafts.remove(d) })
       }
-      work?.let { w -> item(key = "working") { workRev.let { WorkingRow(w) } } }
+      // A new list each time workRev moves, so the row redraws: the same Work object would be skipped.
+      work?.let { w -> item(key = "working") { workRev.let { WorkingRow(w.steps, w.thinking) } } }
       if (note.isNotEmpty()) item { Text(note, style = MaterialTheme.typography.bodySmall, color = h.dim) }
     }
     Column(Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
