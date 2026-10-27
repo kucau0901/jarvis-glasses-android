@@ -30,6 +30,14 @@ class Hub(private val client: JarvisClient) {
 
   suspend fun me(): Me = get("/api/hub/me")
 
+  /**
+   * The person's own alert choices ([AlertPrefs]) changed, on every screen of theirs: each name is
+   * `alertTalk`, `roomTalk` or `roomReply`. What Jarvis then keeps comes back, as it is when one was
+   * never chosen.
+   */
+  suspend fun setAlertPrefs(change: Map<String, String>): AlertPrefs =
+      send<PrefsReply>("PATCH", "/api/hub/me", buildJsonObject { put("prefs", buildJsonObject { for ((k, v) in change) put(k, v) }) }).prefs
+
   // Home panels
 
   suspend fun panels(): PanelsReply = get("/api/hub/panels")

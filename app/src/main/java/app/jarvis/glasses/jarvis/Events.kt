@@ -41,14 +41,28 @@ sealed interface VoiceEvent {
   }
 }
 
-/** An alert from the `/api/v1/events` socket: Jarvis speaking first. */
+/**
+ * An alert from the `/api/v1/events` socket: Jarvis speaking first (docs/api.md, "Talking about
+ * them", in jarvis-voice-agent). [talk] is Jarvis's word on whether to say it and listen for a
+ * reply: the person's "Talk to me about alerts" (and, for the family room, "Say family-room messages
+ * too"), and not a repeat. An older Jarvis sends none: then [speak] decides, as before.
+ */
 data class Alert(
     val id: String,
     val title: String,
     val text: String,
     val speak: Boolean,
     val urgent: Boolean,
+    val talk: Boolean = speak,
+    /** What raised it: "routine", "job", "chat" (a family message), "api" (the house)… */
+    val source: String = "",
+    /** A family message's conversation: "family" for the room, "dm:…" for a direct one. */
+    val convo: String? = null,
 ) {
+  /** How it reads, and is said: "Title: text", as the web app has it; just the text under "Jarvis". */
+  val said: String
+    get() = if (title == "Jarvis") text else "$title: $text"
+
   companion object {
     /** The `alert` field of a `{"type":"alert"}` message, or null for anything else. */
     fun fromMessage(o: JsonObject): Alert? {
@@ -57,7 +71,8 @@ data class Alert(
       val id = a.str("id") ?: return null
       val text = a.str("text")?.trim().orEmpty()
       if (text.isEmpty()) return null
-      return Alert(id, a.str("title") ?: "Jarvis", text, a.bool("speak") ?: true, a.bool("urgent") ?: false)
+      val speak = a.bool("speak") ?: true
+      return Alert(id, a.str("title") ?: "Jarvis", text, speak, a.bool("urgent") ?: false, a.bool("talk") ?: speak, a.str("source").orEmpty(), a.str("convo"))
     }
   }
 }

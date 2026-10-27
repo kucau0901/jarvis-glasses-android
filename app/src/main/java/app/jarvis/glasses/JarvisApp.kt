@@ -79,14 +79,25 @@ class JarvisApp : Application() {
   fun refreshPresence() = alerts.setVisible(audio.connected.value || notifier.canShow())
 
   /**
-   * Jarvis speaking first. Said in the glasses, then listened for a reply, when they are connected
-   * and nothing else is going; otherwise a notification to reply to. Either way it is acknowledged
-   * as seen, so Jarvis doesn't also send it elsewhere; only when Android blocks this app's
-   * notifications does Jarvis carry on to its other ways.
+   * Jarvis speaking first. It is in Chat at once, as Jarvis keeps it. When Jarvis says to talk
+   * about it ([Alert.talk]: the person's choices in Family → You → Alerts) and this phone may say
+   * alerts, it starts a conversation in the glasses: said into a live session already open, or as
+   * the Live voice setting has it, a live session that opens by saying it, else turn by turn.
+   * Otherwise, or when the glasses are busy, a notification to reply to. Either way it is
+   * acknowledged as seen, so Jarvis doesn't also send it elsewhere; only when Android blocks this
+   * app's notifications does Jarvis carry on to its other ways.
    */
   private fun onAlert(alert: Alert): Boolean {
-    val say = prefs.speakAlerts && alert.speak && audio.connected.value && live.state.value == LiveVoice.State.OFF
-    return (say && conversation.start(opening = alert)) || notifier.show(alert)
+    // First, so the conversation it starts has it (a state update: safe from the socket's thread).
+    chat.arrived(alert)
+    val talk = alert.talk && prefs.speakAlerts
+    if (live.state.value == LiveVoice.State.LIVE) return (talk && live.tell(alert)) || notifier.show(alert)
+    if (!talk || !audio.connected.value || live.state.value != LiveVoice.State.OFF || conversation.isBusy) return notifier.show(alert)
+    val started =
+        if (prefs.live) {
+          live.start(chat.recent(), onFail = { conversation.start(opening = alert) }, onSaid = { chat.keep(listOf(it)) }, opening = alert)
+        } else conversation.start(opening = alert)
+    return started || notifier.show(alert)
   }
 }
 
@@ -125,7 +136,10 @@ class Prefs(context: Context) {
     get() = p.getString("theme", "system").orEmpty()
     set(v) = p.edit().putString("theme", v).apply()
 
-  /** Say Jarvis's alerts in the glasses and listen for a reply. */
+  /**
+   * This phone may say Jarvis's alerts in the glasses and listen for a reply: those Jarvis says to
+   * talk about ([Alert.talk]), which the person chooses for all their screens in Jarvis.
+   */
   var speakAlerts: Boolean
     get() = p.getBoolean("speakAlerts", true)
     set(v) = p.edit().putBoolean("speakAlerts", v).apply()

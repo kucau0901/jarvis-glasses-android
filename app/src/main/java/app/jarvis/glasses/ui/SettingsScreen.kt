@@ -222,8 +222,18 @@ fun SettingsScreen(app: JarvisApp, hooks: Hooks) {
           }
           if (liveNote.isNotEmpty()) Text("Live voice: $liveNote", style = MaterialTheme.typography.bodySmall, color = Even.colors.danger)
         }
-        Toggle("Say alerts in the glasses and listen for a reply", speakAlerts) { speakAlerts = it; app.prefs.speakAlerts = it }
+        Toggle("This phone may say alerts in the glasses and listen for a reply", speakAlerts) { speakAlerts = it; app.prefs.speakAlerts = it }
+        Text(
+            "Only those Jarvis talks to you about (Your alerts, below). Off, this phone shows them as notifications.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Even.colors.dim,
+        )
       }
+    }
+
+    // A person's own choices, kept by Jarvis: a device token has none.
+    if (app.prefs.token.startsWith("jss1_")) {
+      item { AlertChoices(app) }
     }
 
     if (!hooks.backgroundAllowed) {

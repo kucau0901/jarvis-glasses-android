@@ -99,9 +99,16 @@ on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by ste
   while Jarvis is busy.
 - **Live voice** (Home or Settings → Voice) switches Talk and "Hey Meta" to GPT-Live. Choose how
   long a quiet session stays open under Settings → Voice.
-- **Settings → Voice → Say alerts in the glasses** decides whether Jarvis may speak first in the
-  glasses; when it doesn't, alerts come as notifications. Android's notification settings for the
-  app (channel "Jarvis's alerts") decide how they look and sound.
+- **Alerts start a conversation.** Every alert is in Chat as it arrives. When Jarvis says to talk
+  about it, the glasses say it and listen for your reply: in a live session that opens by saying it
+  when Live voice is on, else turn by turn; into the session already open, if one is. Whether Jarvis
+  talks about your alerts is yours to choose on every screen, under **Settings → Your alerts**
+  (the same as Jarvis's Family → You → Alerts): **Talk to me about alerts**, and for family
+  messages, **Say family-room messages too** and where answering one aloud goes (to whoever wrote
+  it, or the family room).
+- **Settings → Voice → This phone may say alerts** decides whether this phone does; when it
+  doesn't, or Jarvis says not to, alerts come as notifications. Android's notification settings for
+  the app (channel "Jarvis's alerts") decide how they look and sound.
 
 ## Home events and mail
 
@@ -150,7 +157,7 @@ something.
 | End of a question | Loudness only, no touch: `audio/SpeechGate.kt` (1.2 s of quiet after speech). |
 | A spoken question | `POST /api/v1/voice` twice: hear it, then ask the words with the conversation so far and a photo when one was asked for; the answer streams back sentence by sentence (`jarvis/JarvisClient.kt`). |
 | The conversation | `conversation/Conversation.kt`: listen → hear → stop? photo? → ask → play → listen again. |
-| Alerts | WebSocket `/api/v1/events` (`jarvis/AlertSocket.kt`): said in the glasses when they are connected and the app is free, else a notification with Reply (`alerts/AlertNotifier.kt`). Either way acknowledged as seen, so Jarvis sends it nowhere else; with this app's notifications switched off in Android, Jarvis goes on to its other ways. |
+| Alerts | WebSocket `/api/v1/events` (`jarvis/AlertSocket.kt`): in Chat at once; when the alert says `talk` and the glasses are connected, said in them (into an open live session, a live session opened with it as `opening`, or turn by turn), else a notification with Reply (`alerts/AlertNotifier.kt`). Either way acknowledged as seen, so Jarvis sends it nowhere else; with this app's notifications switched off in Android, Jarvis goes on to its other ways. |
 | Registration, camera, "Hey Meta" | Meta's Wearables Device Access Toolkit 1.0.1: `glasses/GlassesLink.kt`. |
 | Live voice | WebRTC (`live/LiveVoice.kt`) to Jarvis's `/api/session`; tool calls relayed to `/api/v1/stream` as the web app does (`live/LiveRelay.kt`). |
 | Signing in | Jarvis's pairing code (`jarvis/Pairing.kt`); the person's session reaches `/api/hub/…` (`hub/Hub.kt`) and, for an admin, the settings API (`hub/Admin.kt`). |
@@ -178,6 +185,6 @@ voice's WebRTC, and an alert arriving with the phone locked.
   This app is for your own glasses, through your own Beta channel.
 - Only a headset named like Meta glasses ("Ray-Ban", "Meta", "Oakley") counts, so a car or
   earbuds connected at the same time are not used.
-- Alerts are spoken one question at a time even with Live voice on, and not while a live session
-  is open (they go to the phone instead).
+- An alert that comes while a turn-by-turn conversation is going goes to the phone as a
+  notification instead.
 - arm64 phones only (the WebRTC libraries are large).

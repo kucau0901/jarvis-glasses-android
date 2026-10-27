@@ -13,11 +13,22 @@ data class Me(
     val scopes: List<String> = emptyList(),
     val live: Boolean = false,
     val locked: Boolean = false,
+    val prefs: AlertPrefs = AlertPrefs(),
 ) {
   fun can(scope: String) = role == "admin" || "*" in scopes || scope in scopes
 }
 
 @Serializable data class Person(val id: String, val name: String)
+
+/**
+ * The person's own choices about alerts (`prefs` in `/api/hub/me`), the same on every screen of
+ * theirs: whether Jarvis talks to them about alerts, whether family-room messages are said too, and
+ * where answering one aloud goes ("sender" or "room"). Jarvis applies them; the app shows them.
+ */
+@Serializable
+data class AlertPrefs(val alertTalk: String = "on", val roomTalk: String = "on", val roomReply: String = "sender")
+
+@Serializable data class PrefsReply(val prefs: AlertPrefs = AlertPrefs())
 
 // Home panels (src/shared/panels.ts)
 
@@ -141,7 +152,13 @@ data class Said(
     val links: List<Link>? = null,
     val job: Named? = null,
     val routine: Named? = null,
+    /** Any other alert that said it: where from, and its title. Only Jarvis says this. */
+    val alert: AlertFrom? = null,
 ) {
+  /** How it reads in a transcript: under its routine's, job's or alert's name, as the web app tells the model. */
+  val read: String
+    get() = (routine?.name ?: job?.name ?: alert?.title?.takeIf { it != "Jarvis" })?.let { "$it: $text" } ?: text
+
   companion object {
     /** A new turn's id, in the shape Jarvis keeps them. */
     fun newId() = "a" + java.util.UUID.randomUUID().toString().replace("-", "").take(20)
@@ -151,6 +168,8 @@ data class Said(
 @Serializable data class Link(val url: String, val title: String)
 
 @Serializable data class Named(val id: String, val name: String)
+
+@Serializable data class AlertFrom(val source: String = "", val title: String = "")
 
 @Serializable data class Conversation(val said: List<Said> = emptyList())
 

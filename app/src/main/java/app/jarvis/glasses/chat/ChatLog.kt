@@ -1,6 +1,7 @@
 package app.jarvis.glasses.chat
 
 import app.jarvis.glasses.conversation.Memory
+import app.jarvis.glasses.hub.AlertFrom
 import app.jarvis.glasses.hub.Said
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.Turn
@@ -61,11 +62,19 @@ class ChatLog(
   /** Talk and Live: [turns] just said, after [alert] when they reply to one (kept by its own id, so not twice). */
   override fun keep(turns: List<Turn>, alert: Alert?) {
     val at = now()
-    val opening = alert?.let { listOf(Said(it.id, at, "assistant", it.text)) }.orEmpty()
+    val opening = alert?.let { listOf(said(it, at)) }.orEmpty()
     keep(opening + turns.filter { it.text.isNotBlank() }.map { Said(Said.newId(), at, it.role, it.text.trim()) })
   }
 
   override fun recent(): List<Turn> = transcript(_said.value, _kinds.value.keys, now())
+
+  /**
+   * An alert as it arrives: in Chat at once, as Jarvis keeps it (by its id, under its title), so
+   * what is said next has it to refer to. Jarvis has kept it already, so it is not sent.
+   */
+  fun arrived(alert: Alert) = add(listOf(said(alert, now())))
+
+  private fun said(a: Alert, at: Long) = Said(a.id, at, "assistant", a.text, alert = AlertFrom(a.source, a.title))
 
   /** Emptied here and, signed in as a person, on every screen of theirs. */
   suspend fun clear() {
@@ -93,12 +102,12 @@ class ChatLog(
 
     /**
      * What a question goes with: the last twenty turns of the past three hours, as the web app's
-     * (src/app/history.ts there), without rows only [shown]. What a routine or job said is named.
+     * (src/app/history.ts there), without rows only [shown]. What a routine, job or alert said is named.
      */
     fun transcript(said: List<Said>, shown: Set<String>, now: Long): List<Turn> =
         said
             .filter { it.id !in shown && (now - it.at < RECENT_MS || it.at == 0L) }
             .takeLast(RECENT_TURNS)
-            .map { s -> Turn(s.role, (s.routine ?: s.job)?.let { "${it.name}: ${s.text}" } ?: s.text) }
+            .map { s -> Turn(s.role, s.read) }
   }
 }

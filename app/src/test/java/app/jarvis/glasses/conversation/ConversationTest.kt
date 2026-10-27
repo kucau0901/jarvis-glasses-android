@@ -73,7 +73,8 @@ class ConversationTest {
 
     override fun keep(turns: List<Turn>, alert: Alert?) {
       kept += turns to alert
-      alert?.let { this.turns += Turn.jarvis(it.text) }
+      // As ChatLog keeps it: under its title.
+      alert?.let { this.turns += Turn.jarvis(it.said) }
       this.turns += turns
     }
   }
@@ -140,13 +141,25 @@ class ConversationTest {
     conversation(ears, mouth, brain, memory = memory).start(alert)
     advanceUntilIdle()
 
-    assertEquals("tts:Leave in ten minutes.", mouth.played.first())
-    assertEquals(listOf(Turn.jarvis("Leave in ten minutes.")), brain.asked.first().second)
+    // Said with its title, as the web app says it: a family message says who wrote it.
+    assertEquals("tts:Office: Leave in ten minutes.", mouth.played.first())
+    assertEquals(listOf(Turn.jarvis("Office: Leave in ten minutes.")), brain.asked.first().second)
     assertEquals(Conversation.replyWaitMs, ears.waits.first())
     // The alert is kept before the reply, once, and the next question has it from Chat's.
     assertEquals(listOf(alert, null), memory.kept.map { it.second })
-    assertEquals(Turn.jarvis("Leave in ten minutes."), brain.asked[1].second.first())
-    assertEquals(1, brain.asked[1].second.count { it.text == "Leave in ten minutes." })
+    assertEquals(Turn.jarvis("Office: Leave in ten minutes."), brain.asked[1].second.first())
+    assertEquals(1, brain.asked[1].second.count { it.text == "Office: Leave in ten minutes." })
+  }
+
+  @Test
+  fun anAlertChatHasAlreadyIsNotAskedWithTwice() = runTest {
+    val alert = Alert("a1", "Front door", "It is unlocked.", speak = true, urgent = false)
+    // Put in Chat as it arrived (ChatLog.arrived), before the conversation it starts.
+    val memory = FakeMemory(listOf(Turn.jarvis(alert.said)))
+    val brain = FakeBrain()
+    conversation(FakeEars("lock it"), FakeMouth(), brain, memory = memory).start(alert)
+    advanceUntilIdle()
+    assertEquals(listOf(Turn.jarvis("Front door: It is unlocked.")), brain.asked.single().second)
   }
 
   @Test

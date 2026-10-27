@@ -131,4 +131,12 @@ class LiveRelayTest {
     assertTrue(parts.dropLast(1).all { it.endsWith(".") })
     assertEquals(listOf("short"), LiveRelay.chunks("short"))
   }
+
+  @Test
+  fun anAlertSaidIntoAnOpenSessionBelongsToNoDelegation() {
+    val o = kotlinx.serialization.json.Json.parseToJsonElement(LiveRelay.say("Front door: It is unlocked.")).jsonObject
+    assertEquals("session.commentary.append", o["type"]!!.jsonPrimitive.content)
+    assertEquals("Front door: It is unlocked.", o["content"]!!.jsonPrimitive.content)
+    assertEquals(kotlinx.serialization.json.JsonNull, o["delegation_id"])
+  }
 }

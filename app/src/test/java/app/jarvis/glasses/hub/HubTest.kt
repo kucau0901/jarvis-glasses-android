@@ -30,6 +30,26 @@ class HubTest {
   private fun body() = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
 
   @Test
+  fun theAlertChoicesAreReadAndChanged() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"user":{"id":"u_ana","name":"Ana"},"role":"adult","scopes":["chat"],"prefs":{"voice":"cedar","alertTalk":"on","roomTalk":"off","roomReply":"room"}}"""))
+    assertEquals(AlertPrefs("on", "off", "room"), hub.me().prefs)
+    // What Jarvis keeps comes back; one never chosen reads as its default.
+    server.enqueue(MockResponse().setBody("""{"prefs":{"alertTalk":"off"}}"""))
+    assertEquals(AlertPrefs(alertTalk = "off"), hub.setAlertPrefs(mapOf("alertTalk" to "off")))
+    server.takeRequest()
+    val req = server.takeRequest()
+    assertEquals("PATCH", req.method)
+    assertEquals("/api/hub/me", req.path)
+    assertEquals("off", Json.parseToJsonElement(req.body.readUtf8()).jsonObject["prefs"]!!.jsonObject["alertTalk"]!!.jsonPrimitive.content)
+  }
+
+  @Test
+  fun aPersonWithNoAlertChoicesHasTheDefaults() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"owner":true,"role":"admin","scopes":["*"],"prefs":{}}"""))
+    assertEquals(AlertPrefs("on", "on", "sender"), hub.me().prefs)
+  }
+
+  @Test
   fun panelsAreRead() = runBlocking {
     server.enqueue(
         MockResponse()

@@ -125,23 +125,32 @@ class JarvisClient(
         }
       }
 
+  /** A GPT-Live session's answer, and with an opening, the event that has Jarvis say it ([liveSession]). */
+  data class LiveAnswer(val sdp: String, val first: String? = null)
+
   /**
    * Opens a GPT-Live session: Jarvis sends this offer to OpenAI with its own key and returns the
    * answer's SDP, so no key reaches the phone. Needs `OPENAI_API_KEY` on the Jarvis side.
+   *
+   * With [opening], a session opened to say that alert and hear the reply: Jarvis puts it last in
+   * the history and answers with `first`, the event to send on `oai-events` once it opens (GPT-Live
+   * cannot speak first from the server; docs/api.md, "Live voice", in jarvis-voice-agent).
    */
-  suspend fun liveSession(offerSdp: String, history: List<Turn>): String =
+  suspend fun liveSession(offerSdp: String, history: List<Turn>, opening: Alert? = null): LiveAnswer =
       withContext(Dispatchers.IO) {
         val body = buildJsonObject {
           put("sdp", offerSdp)
           put("history", turnsJson(history))
           put("client", "mobile")
+          if (opening != null) put("opening", buildJsonObject { put("id", opening.id); put("title", opening.title); put("text", opening.text) })
         }
         val req = request("/api/session").post(body.toString().toRequestBody(JSON)).build()
         http.newCall(req).execute().use { res ->
           val text = res.body?.string().orEmpty()
           if (!res.isSuccessful) throw JarvisException(errorOf(res.code, text))
-          (SseParser.json.parseToJsonElement(text).jsonObject["sdp"] as? JsonPrimitive)?.contentOrNull
-              ?: throw JarvisException("Jarvis sent no session")
+          val o = SseParser.json.parseToJsonElement(text).jsonObject
+          val sdp = (o["sdp"] as? JsonPrimitive)?.contentOrNull ?: throw JarvisException("Jarvis sent no session")
+          LiveAnswer(sdp, (o["first"] as? JsonObject)?.toString())
         }
       }
 

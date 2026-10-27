@@ -112,8 +112,9 @@ class Conversation(
       }
       if (opening != null) {
         _status.value = Status.SPEAKING
-        val audio = runCatching { brain.speech(opening.text) }.getOrNull()
-        if (audio != null) mouth.play(audio) else mouth.say(opening.text)
+        // With its title: a family message says who wrote it.
+        val audio = runCatching { brain.speech(opening.said) }.getOrNull()
+        if (audio != null) mouth.play(audio) else mouth.say(opening.said)
       }
       var wait = if (opening != null) replyWaitMs else firstWaitMs
       var first = opening == null
@@ -150,7 +151,9 @@ class Conversation(
 
   // Its own scope, so stopping the conversation stops the playing too.
   private suspend fun answer(heard: String, photo: ByteArray?) = coroutineScope {
-    val context = memory.recent() + listOfNotNull(opened?.let { Turn.jarvis(it.text) })
+    // The alert, unless Chat has it already (it is put there as it arrives).
+    val recent = memory.recent()
+    val context = recent + listOfNotNull(opened?.let { o -> Turn.jarvis(o.said).takeIf { t -> recent.none { it == t } } })
     _note.value = ""
     // Sentences are played as they arrive, while the rest of the answer is still coming.
     val clips = Channel<ByteArray>(Channel.UNLIMITED)

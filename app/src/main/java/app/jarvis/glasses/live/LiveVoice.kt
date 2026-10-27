@@ -3,6 +3,7 @@ package app.jarvis.glasses.live
 import android.content.Context
 import android.util.Log
 import app.jarvis.glasses.audio.GlassesAudio
+import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.JarvisClient
 import app.jarvis.glasses.jarvis.Turn
 import java.nio.ByteBuffer
@@ -61,16 +62,21 @@ class LiveVoice(
 
   private var job: Job? = null
   private var factory: PeerConnectionFactory? = null
+  // The open session's `oai-events` channel, for an alert said into it ([tell]).
+  @Volatile private var channel: DataChannel? = null
+  // What to send as the channel opens: with an opening, the event that has Jarvis say the alert. Read on WebRTC's thread.
+  @Volatile private var first: String? = null
 
   /**
    * Opens a session from [history]; [onFail] when it can't be opened ([note] says why). [onSaid]
-   * gets each turn said in it as it is finished.
+   * gets each turn said in it as it is finished. With [opening], it starts by Jarvis saying that
+   * alert, then listens for the reply.
    */
   @Synchronized
-  fun start(history: List<Turn>, onFail: () -> Unit, onSaid: (Turn) -> Unit): Boolean {
+  fun start(history: List<Turn>, onFail: () -> Unit, onSaid: (Turn) -> Unit, opening: Alert? = null): Boolean {
     if (job?.isActive == true) return false
     job = scope.launch {
-      run(history, { why ->
+      run(history, opening, { why ->
         Log.w(TAG, "could not open: $why")
         _note.value = why
         onFail()
@@ -79,11 +85,17 @@ class LiveVoice(
     return true
   }
 
+  /** An alert said into the session that is open, as the web app does: false when none is. */
+  fun tell(alert: Alert): Boolean {
+    val c = channel?.takeIf { it.state() == DataChannel.State.OPEN } ?: return false
+    return c.send(DataChannel.Buffer(ByteBuffer.wrap(LiveRelay.say(alert.said).toByteArray()), false))
+  }
+
   fun stop() {
     job?.cancel()
   }
 
-  private suspend fun run(history: List<Turn>, onFail: (String) -> Unit, onSaid: (Turn) -> Unit) {
+  private suspend fun run(history: List<Turn>, opening: Alert?, onFail: (String) -> Unit, onSaid: (Turn) -> Unit) {
     _state.value = State.CONNECTING
     _note.value = ""
     var pc: PeerConnection? = null
@@ -121,6 +133,7 @@ class LiveVoice(
       }, onSaid = onSaid)
       r.seed(history)
       relay = r
+      first = null
       channel.registerObserver(
           object : DataChannel.Observer {
             override fun onBufferedAmountChange(previous: Long) = Unit
@@ -129,9 +142,15 @@ class LiveVoice(
               when (channel.state()) {
                 DataChannel.State.OPEN -> {
                   Log.i(TAG, "live")
+                  this@LiveVoice.channel = channel
+                  // Not before: GPT-Live drops what is sent into a channel that isn't open yet.
+                  first?.let { channel.send(DataChannel.Buffer(ByteBuffer.wrap(it.toByteArray()), false)) }
                   _state.value = State.LIVE
                 }
-                DataChannel.State.CLOSED -> ended.complete(Unit)
+                DataChannel.State.CLOSED -> {
+                  this@LiveVoice.channel = null
+                  ended.complete(Unit)
+                }
                 else -> Unit
               }
             }
@@ -148,8 +167,10 @@ class LiveVoice(
       // Everything in one offer: the Worker forwards it once.
       withTimeoutOrNull(3_000) { gathered.await() }
       Log.i(TAG, "offer ready, asking Jarvis for a session")
-      val answer = client.liveSession(peer.localDescription.description, history)
-      peer.setRemote(SessionDescription(SessionDescription.Type.ANSWER, answer))
+      val answer = client.liveSession(peer.localDescription.description, history, opening)
+      // Before the answer is set: the channel can open only after it.
+      first = answer.first
+      peer.setRemote(SessionDescription(SessionDescription.Type.ANSWER, answer.sdp))
       openedAt = System.currentTimeMillis()
 
       val watch = scope.launch {
@@ -167,6 +188,7 @@ class LiveVoice(
     } catch (e: Exception) {
       onFail(e.message ?: "Live voice couldn't start")
     } finally {
+      channel = null
       relay?.stop()
       runCatching { pc?.close() }
       runCatching { pc?.dispose() }

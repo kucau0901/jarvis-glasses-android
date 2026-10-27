@@ -53,9 +53,24 @@ class EventsTest {
   @Test
   fun alertsComeFromAlertMessagesOnly() {
     val msg = parse("data: {\"type\":\"alert\",\"alert\":{\"id\":\"k3v\",\"at\":1,\"title\":\"Office\",\"text\":\"Leave in ten minutes.\",\"speak\":true,\"urgent\":false,\"source\":\"routine\"}}").single()
-    assertEquals(Alert("k3v", "Office", "Leave in ten minutes.", speak = true, urgent = false), Alert.fromMessage(msg))
+    assertEquals(Alert("k3v", "Office", "Leave in ten minutes.", speak = true, urgent = false, source = "routine"), Alert.fromMessage(msg))
     assertNull(Alert.fromMessage(parse("data: {\"type\":\"hello\",\"label\":\"glasses\"}").single()))
     assertNull(Alert.fromMessage(parse("data: {\"type\":\"alert\",\"alert\":{\"id\":\"x\",\"text\":\"  \"}}").single()))
+  }
+
+  @Test
+  fun anAlertSaysWhetherToTalkAboutIt() {
+    fun alert(json: String) = Alert.fromMessage(parse("data: {\"type\":\"alert\",\"alert\":$json}").single())!!
+    // Jarvis's word: the person's choices, and not a repeat.
+    val quiet = alert("""{"id":"a1","title":"Sara, to the family","text":"Dinner at eight","speak":true,"talk":false,"urgent":false,"source":"chat","convo":"family"}""")
+    assertEquals(false, quiet.talk)
+    assertEquals("chat", quiet.source)
+    assertEquals("family", quiet.convo)
+    assertEquals("Sara, to the family: Dinner at eight", quiet.said)
+    // An older Jarvis sends no talk: speak decides, as before.
+    assertEquals(true, alert("""{"id":"a2","text":"Leave now","speak":true}""").talk)
+    assertEquals(false, alert("""{"id":"a3","text":"A note","speak":false}""").talk)
+    assertEquals("Leave now", alert("""{"id":"a2","title":"Jarvis","text":"Leave now","speak":true}""").said)
   }
 
   @Test

@@ -155,6 +155,10 @@ class LiveRelay(
     fun commentary(content: String, id: String) =
         buildJsonObject { put("type", "session.commentary.append"); put("content", content); put("delegation_id", id) }.toString()
 
+    /** Something for the session to say that no delegation asked for: an alert that came in during it. */
+    fun say(content: String) =
+        buildJsonObject { put("type", "session.commentary.append"); put("content", content); put("delegation_id", null as String?) }.toString()
+
     fun thinking(content: String, id: String) =
         buildJsonObject { put("type", "session.thinking.append"); put("content", content); put("delegation_id", id) }.toString()
 

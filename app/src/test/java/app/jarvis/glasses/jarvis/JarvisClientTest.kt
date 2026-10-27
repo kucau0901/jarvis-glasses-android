@@ -82,13 +82,28 @@ class JarvisClientTest {
   @Test
   fun aLiveSessionSendsTheOfferAndReturnsTheAnswer() = runBlocking {
     server.enqueue(MockResponse().setBody("""{"sdp":"v=0 answer","sessionId":"s1","voice":"cedar","restoredTurns":1}"""))
-    assertEquals("v=0 answer", client.liveSession("v=0 offer", listOf(Turn.user("hi"))))
+    assertEquals(JarvisClient.LiveAnswer("v=0 answer"), client.liveSession("v=0 offer", listOf(Turn.user("hi"))))
     val req = server.takeRequest()
     assertEquals("/api/session", req.path)
     val body = kotlinx.serialization.json.Json.parseToJsonElement(req.body.readUtf8()).jsonObject
     assertEquals("v=0 offer", body["sdp"]!!.jsonPrimitive.content)
     assertEquals("mobile", body["client"]!!.jsonPrimitive.content)
     assertEquals(1, body["history"]!!.jsonArray.size)
+    assertNull(body["opening"])
+  }
+
+  @Test
+  fun aLiveSessionOpenedForAnAlertSendsItAndGetsTheFirstEvent() = runBlocking {
+    val first = """{"type":"session.commentary.append","content":"Front door: It is unlocked.","delegation_id":null,"event_id":"opening_a1b2c3d4"}"""
+    server.enqueue(MockResponse().setBody("""{"sdp":"v=0 answer","sessionId":"s1","voice":"cedar","restoredTurns":2,"first":$first}"""))
+    val got = client.liveSession("v=0 offer", emptyList(), Alert("a1b2c3d4", "Front door", "It is unlocked.", speak = true, urgent = false))
+    assertEquals("v=0 answer", got.sdp)
+    assertEquals(kotlinx.serialization.json.Json.parseToJsonElement(first), kotlinx.serialization.json.Json.parseToJsonElement(got.first!!))
+    val body = kotlinx.serialization.json.Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+    val opening = body["opening"]!!.jsonObject
+    assertEquals("a1b2c3d4", opening["id"]!!.jsonPrimitive.content)
+    assertEquals("Front door", opening["title"]!!.jsonPrimitive.content)
+    assertEquals("It is unlocked.", opening["text"]!!.jsonPrimitive.content)
   }
 
   @Test

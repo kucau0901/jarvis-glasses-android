@@ -1,5 +1,6 @@
 package app.jarvis.glasses.chat
 
+import app.jarvis.glasses.hub.AlertFrom
 import app.jarvis.glasses.hub.Named
 import app.jarvis.glasses.hub.Said
 import app.jarvis.glasses.jarvis.Alert
@@ -36,6 +37,21 @@ class ChatLogTest {
             Said("bad0001", NOW, "assistant", "Couldn't reach Jarvis"),
         )
     assertEquals(listOf(Turn.jarvis("Morning brief: Two meetings.")), ChatLog.transcript(history, setOf("bad0001"), NOW))
+  }
+
+  @Test
+  fun anAlertIsInChatAsItArrivesUnderItsTitleAndNotSent() = runTest {
+    val j = Jarvis()
+    val log = log(j)
+    log.arrived(Alert("al00001", "Front door", "It is unlocked.", speak = true, urgent = false, source = "api"))
+    advanceUntilIdle()
+    assertEquals("Front door", log.said.value.single().alert?.title)
+    assertEquals(listOf(Turn.jarvis("Front door: It is unlocked.")), log.recent())
+    assertTrue("Jarvis keeps it itself", j.saved.isEmpty())
+    // Jarvis's own copy, read back, is the same row.
+    j.kept = listOf(Said("al00001", NOW, "assistant", "It is unlocked.", alert = AlertFrom("api", "Front door")))
+    log.refresh()
+    assertEquals(1, log.said.value.size)
   }
 
   @Test

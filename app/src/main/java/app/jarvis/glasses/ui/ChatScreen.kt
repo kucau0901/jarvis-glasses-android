@@ -205,7 +205,7 @@ private fun SaidRow(s: Said, kind: String?, read: Boolean) {
       kind == "bad" -> Text(s.text, style = MaterialTheme.typography.bodyLarge, color = Even.colors.danger)
       else -> MarkdownText(s.text, h.ink, h.dim, h.bubbleYou)
     }
-    (s.job ?: s.routine)?.let { Text(it.name, style = MaterialTheme.typography.labelSmall, color = h.dim) }
+    (s.job?.name ?: s.routine?.name ?: s.alert?.title?.takeIf { it != "Jarvis" })?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = h.dim) }
   }
   if (read) Text("Read", style = MaterialTheme.typography.labelSmall, color = h.dim, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth().padding(top = 3.dp, end = 6.dp))
   s.links?.forEach { l -> Box(Modifier.padding(top = 6.dp)) { LinkCard(l) } }
