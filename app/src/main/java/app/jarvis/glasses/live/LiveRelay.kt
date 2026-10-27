@@ -24,11 +24,15 @@ import kotlinx.serialization.json.put
  * `session.delegation.created` with no task text: the app keeps the conversation from the
  * transcript deltas and sends all of it to `/api/v1/stream`. Progress goes back as silent
  * `session.thinking.append`, the answer as `session.commentary.append` for the model to say.
+ *
+ * Each turn is handed to [onSaid] once it is finished, when the other side starts speaking or the
+ * session ends ([finish]), to be kept with Chat's as the web app keeps each row as it settles.
  */
 class LiveRelay(
     private val scope: CoroutineScope,
     private val delegate: suspend (id: String, transcript: List<Turn>, onEvent: suspend (JsonObject) -> Unit) -> Unit,
     private val send: (String) -> Unit,
+    private val onSaid: (Turn) -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis,
 ) {
   private val _turns = MutableStateFlow<List<Turn>>(emptyList())
@@ -46,9 +50,15 @@ class LiveRelay(
   fun seed(history: List<Turn>) {
     _turns.value = history
     seeded = history.size
+    settled = history.size
   }
 
   private var seeded = 0
+  // How many turns are seeded or handed to onSaid.
+  private var settled = 0
+
+  /** The session has ended: its last turn is finished too. */
+  fun finish() = settle(_turns.value.size)
 
   /**
    * The wearer said a closing ("thanks", "bye", "dah") in this session and things have been quiet
@@ -85,8 +95,16 @@ class LiveRelay(
     lastActivity = now()
     val turns = _turns.value
     val last = turns.lastOrNull()
+    // Only a turn of this session goes on: a seed ending in the user's words is finished.
     _turns.value =
-        if (last != null && last.role == role) turns.dropLast(1) + Turn(role, last.text + delta) else turns + Turn(role, delta.trimStart())
+        if (last != null && last.role == role && turns.size > settled) turns.dropLast(1) + Turn(role, last.text + delta) else turns + Turn(role, delta.trimStart())
+    // A new turn started: the one before it is finished.
+    settle(_turns.value.size - 1)
+  }
+
+  private fun settle(upTo: Int) {
+    val turns = _turns.value
+    while (settled < upTo) turns[settled++].takeIf { it.text.isNotBlank() }?.let { onSaid(it.copy(text = it.text.trim())) }
   }
 
   private suspend fun run(id: String, transcript: List<Turn>) {

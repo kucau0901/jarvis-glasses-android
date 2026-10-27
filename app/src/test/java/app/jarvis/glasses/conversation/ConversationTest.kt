@@ -64,13 +64,28 @@ class ConversationTest {
     override suspend fun speech(text: String) = "tts:$text".toByteArray()
   }
 
+  /** Chat's conversation: [before] already there, and what Talk keeps after it. */
+  private class FakeMemory(before: List<Turn> = emptyList()) : Memory {
+    val turns = before.toMutableList()
+    val kept = mutableListOf<Pair<List<Turn>, Alert?>>()
+
+    override fun recent() = turns.toList()
+
+    override fun keep(turns: List<Turn>, alert: Alert?) {
+      kept += turns to alert
+      alert?.let { this.turns += Turn.jarvis(it.text) }
+      this.turns += turns
+    }
+  }
+
   private fun TestScope.conversation(
       ears: Ears,
       mouth: Mouth,
       brain: Brain,
       followUps: Boolean = true,
       photo: ByteArray? = byteArrayOf(7),
-  ) = Conversation(this, ears, mouth, { photo }, brain, followUps = { followUps }, now = { testScheduler.currentTime })
+      memory: Memory = FakeMemory(),
+  ) = Conversation(this, ears, mouth, { photo }, brain, memory, followUps = { followUps })
 
   @Test
   fun aQuestionIsAnsweredAndAFollowUpIsListenedFor() = runTest {
@@ -117,15 +132,21 @@ class ConversationTest {
 
   @Test
   fun anAlertIsSaidFirstAndTheReplyKnowsIt() = runTest {
-    val ears = FakeEars("yes, remind me in an hour")
+    val ears = FakeEars("yes, remind me in an hour", "and call Sam")
     val mouth = FakeMouth()
     val brain = FakeBrain()
-    conversation(ears, mouth, brain).start(Alert("a1", "Office", "Leave in ten minutes.", speak = true, urgent = false))
+    val memory = FakeMemory()
+    val alert = Alert("a1", "Office", "Leave in ten minutes.", speak = true, urgent = false)
+    conversation(ears, mouth, brain, memory = memory).start(alert)
     advanceUntilIdle()
 
     assertEquals("tts:Leave in ten minutes.", mouth.played.first())
-    assertEquals(listOf(Turn.jarvis("Leave in ten minutes.")), brain.asked.single().second)
+    assertEquals(listOf(Turn.jarvis("Leave in ten minutes.")), brain.asked.first().second)
     assertEquals(Conversation.replyWaitMs, ears.waits.first())
+    // The alert is kept before the reply, once, and the next question has it from Chat's.
+    assertEquals(listOf(alert, null), memory.kept.map { it.second })
+    assertEquals(Turn.jarvis("Leave in ten minutes."), brain.asked[1].second.first())
+    assertEquals(1, brain.asked[1].second.count { it.text == "Leave in ten minutes." })
   }
 
   @Test
@@ -157,17 +178,34 @@ class ConversationTest {
   }
 
   @Test
-  fun theConversationIsForgottenAfterAPause() = runTest {
+  fun eachAnsweredQuestionIsKeptWithItsAnswer() = runTest {
+    val memory = FakeMemory()
+    conversation(FakeEars("what's on today", "thanks"), FakeMouth(), FakeBrain(), memory = memory).start()
+    advanceUntilIdle()
+    // The closing is not asked, so not kept.
+    assertEquals(listOf(listOf(Turn.user("what's on today"), Turn.jarvis("answer to what's on today"))), memory.kept.map { it.first })
+  }
+
+  @Test
+  fun aNewTalkGoesOnFromChatsConversation() = runTest {
     val brain = FakeBrain()
-    val ears = FakeEars("first")
-    val c = conversation(ears, FakeMouth(), brain, followUps = false)
-    c.start()
+    val before = listOf(Turn.user("typed in Chat"), Turn.jarvis("an answer"))
+    conversation(FakeEars("and then?"), FakeMouth(), brain, followUps = false, memory = FakeMemory(before)).start()
     advanceUntilIdle()
-    testScheduler.advanceTimeBy(Conversation.forgetAfterMs + 1)
-    ears.queue.add("second")
-    c.start()
+    assertEquals(before, brain.asked.single().second)
+  }
+
+  @Test
+  fun aFailedAnswerIsNotKept() = runTest {
+    val memory = FakeMemory()
+    val failing =
+        object : Brain by FakeBrain(withAudio = false) {
+          override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, onEvent: suspend (VoiceEvent) -> Unit) =
+              VoiceEvent.Answer("Jarvis couldn't do that.", false)
+        }
+    conversation(FakeEars("do it"), FakeMouth(), failing, followUps = false, memory = memory).start()
     advanceUntilIdle()
-    assertTrue(brain.asked[1].second.isEmpty())
+    assertTrue(memory.kept.isEmpty())
   }
 
   @Test

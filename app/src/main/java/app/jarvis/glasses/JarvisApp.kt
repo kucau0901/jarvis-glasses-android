@@ -3,6 +3,7 @@ package app.jarvis.glasses
 import android.app.Application
 import android.content.Context
 import app.jarvis.glasses.audio.GlassesAudio
+import app.jarvis.glasses.chat.ChatLog
 import app.jarvis.glasses.conversation.Conversation
 import app.jarvis.glasses.glasses.GlassesLink
 import app.jarvis.glasses.jarvis.Address
@@ -26,6 +27,7 @@ class JarvisApp : Application() {
   lateinit var audio: GlassesAudio
   lateinit var link: GlassesLink
   lateinit var client: JarvisClient
+  lateinit var chat: ChatLog
   lateinit var conversation: Conversation
   lateinit var live: LiveVoice
   lateinit var alerts: AlertSocket
@@ -39,33 +41,37 @@ class JarvisApp : Application() {
     prefs = Prefs(this)
     audio = GlassesAudio(this)
     link = GlassesLink(this, scope)
-    client = JarvisClient({ prefs.url }, { prefs.token }, { prefs.gatewayHeaders() })
-    conversation = Conversation(scope, audio, audio, link, client, followUps = { prefs.followUps })
+    client = JarvisClient({ prefs.url }, { prefs.token }, { prefs.gatewayHeaders() }, { prefs.origin })
+    hub = Hub(client)
+    chat = ChatLog(scope, hub::conversation, hub::keep, hub::clearConversation, person = { prefs.token.startsWith("jss1_") })
+    conversation = Conversation(scope, audio, audio, link, client, chat, followUps = { prefs.followUps })
     live = LiveVoice(this, client, audio, scope, quietMs = { prefs.liveQuietSeconds * 1000L })
     alerts = AlertSocket(client, scope, ::onAlert)
-    hub = Hub(client)
     admin = Admin(client)
-    notifier = AlertNotifier(this, client, hub, person = { prefs.token.startsWith("jss1_") }, scope)
+    notifier = AlertNotifier(this, client, chat, scope)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
     // In front of someone: the glasses say an alert, or a notification shows it. Jarvis waits for
     // this app's word only when it is, so without it every alert also went out by push.
     scope.launch { audio.connected.collect { refreshPresence() } }
+    scope.launch { runCatching { chat.refresh() } }
   }
 
   /**
    * "Hey Meta, open Jarvis", Talk: a live session when Live voice is on, falling back to a
-   * push-to-talk conversation when Jarvis can't open one (no OpenAI key, say).
+   * push-to-talk conversation when Jarvis can't open one (no OpenAI key, say). Either goes on from
+   * Chat's conversation, read again meanwhile for what was said on the person's other screens.
    */
   fun talk() {
     if (conversation.isBusy || live.state.value != LiveVoice.State.OFF) return
+    scope.launch { runCatching { chat.refresh() } }
     if (!prefs.live) {
       conversation.start()
       return
     }
     live.start(
-        conversation.recent(),
+        chat.recent(),
         onFail = { conversation.start() },
-        onEnd = conversation::adopt,
+        onSaid = { chat.keep(listOf(it)) },
     )
   }
 
@@ -123,6 +129,12 @@ class Prefs(context: Context) {
   var speakAlerts: Boolean
     get() = p.getBoolean("speakAlerts", true)
     set(v) = p.edit().putBoolean("speakAlerts", v).apply()
+
+  /** This phone's own id among the person's screens, made once: the `origin` of its questions. */
+  val origin: String
+    get() =
+        p.getString("origin", null)
+            ?: ("p_" + java.util.UUID.randomUUID().toString().replace("-", "").take(20)).also { p.edit().putString("origin", it).apply() }
 
   /** Who the app is signed in as, after pairing ("" for a device token). */
   var signedInAs: String

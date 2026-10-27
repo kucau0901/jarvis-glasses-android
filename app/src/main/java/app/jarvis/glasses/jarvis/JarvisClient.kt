@@ -33,6 +33,8 @@ class JarvisClient(
     private val token: () -> String,
     /** Extra headers for a Jarvis behind Cloudflare Access (its service token); empty for most. */
     private val gateway: () -> Map<String, String> = { emptyMap() },
+    /** This phone's own id, sent as the `origin` of each question; blank for none. */
+    private val originId: () -> String = { "" },
     val http: OkHttpClient = defaultHttp(),
 ) : Brain {
   class JarvisException(message: String) : IOException(message)
@@ -67,7 +69,7 @@ class JarvisClient(
   ): VoiceEvent.Answer =
       withContext(Dispatchers.IO) {
         var answer: VoiceEvent.Answer? = null
-        stream("/api/v1/voice", askBody(text, context, photoJpeg)) { o ->
+        stream("/api/v1/voice", askBody(text, context, photoJpeg, origin())) { o ->
           val e = VoiceEvent.from(o) ?: return@stream
           if (e is VoiceEvent.Answer) answer = e
           onEvent(e)
@@ -84,6 +86,7 @@ class JarvisClient(
         val body = buildJsonObject {
           put("delegationId", delegationId)
           put("transcript", turnsJson(transcript))
+          origin()?.let { put("origin", it) }
         }
         stream("/api/v1/stream", body, onEvent)
       }
@@ -98,13 +101,20 @@ class JarvisClient(
           put("delegationId", "typed")
           put("transcript", turnsJson(transcript))
           put("surface", "chat")
-          put("origin", buildJsonObject { put("id", "glasses-app"); put("label", "Phone") })
+          origin()?.let { put("origin", it) }
           if (photoJpeg != null) {
             put("images", JsonArray(listOf(JsonPrimitive("data:image/jpeg;base64," + java.util.Base64.getEncoder().encodeToString(photoJpeg)))))
           }
         }
         stream("/api/v1/stream", body, onEvent)
       }
+
+  /**
+   * Which of the person's screens asked (lib/shared.ts in Jarvis): Jarvis tells this phone what was
+   * said lately on their others, and leaves out what it said itself. Whose they are is the sign-in's.
+   */
+  private fun origin(): JsonObject? =
+      originId().takeIf { it.isNotBlank() }?.let { id -> buildJsonObject { put("id", id); put("label", "Phone") } }
 
   /** Sends a Gmail draft Jarvis wrote (its `draft` event); needs `mail`. */
   suspend fun sendDraft(id: String) =
@@ -203,11 +213,12 @@ class JarvisClient(
             .build()
 
     /** The JSON body of a text question: `{text, context, reply, format, images?}`. */
-    fun askBody(text: String, context: List<Turn>, photoJpeg: ByteArray?): JsonObject = buildJsonObject {
+    fun askBody(text: String, context: List<Turn>, photoJpeg: ByteArray?, origin: JsonObject? = null): JsonObject = buildJsonObject {
       put("text", text)
       put("context", turnsJson(context))
       put("reply", "audio")
       put("format", "mp3")
+      if (origin != null) put("origin", origin)
       if (photoJpeg != null) {
         put(
             "images",

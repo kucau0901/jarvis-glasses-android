@@ -1,7 +1,6 @@
 package app.jarvis.glasses.hub
 
 import app.jarvis.glasses.jarvis.JarvisClient
-import app.jarvis.glasses.jarvis.Turn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -109,6 +108,11 @@ class Hub(private val client: JarvisClient) {
   // Chat history, shared with the web app's Chat tab
 
   suspend fun conversation(): List<Said> = get<Conversation>("/api/hub/conversation").said
+
+  /** Emptied, here and on every screen of theirs (Clear chat). */
+  suspend fun clearConversation() {
+    send<JsonObject>("DELETE", "/api/hub/conversation", buildJsonObject {})
+  }
 
   suspend fun keep(said: List<Said>) {
     if (said.isEmpty()) return
@@ -240,9 +244,5 @@ class Hub(private val client: JarvisClient) {
       if (body.toString().length > ORDER_LIMIT) throw JarvisClient.JarvisException("Too many tiles to move from the phone")
       return body
     }
-
-    /** The last turns sent with a typed question: 20 within the last 3 hours, as the web app does. */
-    fun transcript(history: List<Said>, now: Long): List<Turn> =
-        history.filter { now - it.at < 3 * 3_600_000L || it.at == 0L }.takeLast(20).map { Turn(it.role, it.text) }
   }
 }

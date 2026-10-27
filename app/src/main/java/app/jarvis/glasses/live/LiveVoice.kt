@@ -59,23 +59,22 @@ class LiveVoice(
   /** Why the last session couldn't open, if it couldn't. */
   val note: StateFlow<String> = _note
 
-  private val _turns = MutableStateFlow<List<Turn>>(emptyList())
-  /** What was said in the session, kept for the push-to-talk conversation that may follow. */
-  val turns: StateFlow<List<Turn>> = _turns
-
   private var job: Job? = null
   private var factory: PeerConnectionFactory? = null
 
-  /** Opens a session; [onFail] when it can't be opened ([note] says why). [onEnd] gets what was said. */
+  /**
+   * Opens a session from [history]; [onFail] when it can't be opened ([note] says why). [onSaid]
+   * gets each turn said in it as it is finished.
+   */
   @Synchronized
-  fun start(history: List<Turn>, onFail: () -> Unit, onEnd: (List<Turn>) -> Unit): Boolean {
+  fun start(history: List<Turn>, onFail: () -> Unit, onSaid: (Turn) -> Unit): Boolean {
     if (job?.isActive == true) return false
     job = scope.launch {
       run(history, { why ->
         Log.w(TAG, "could not open: $why")
         _note.value = why
         onFail()
-      }, onEnd)
+      }, onSaid)
     }
     return true
   }
@@ -84,10 +83,9 @@ class LiveVoice(
     job?.cancel()
   }
 
-  private suspend fun run(history: List<Turn>, onFail: (String) -> Unit, onEnd: (List<Turn>) -> Unit) {
+  private suspend fun run(history: List<Turn>, onFail: (String) -> Unit, onSaid: (Turn) -> Unit) {
     _state.value = State.CONNECTING
     _note.value = ""
-    _turns.value = history
     var pc: PeerConnection? = null
     var track: AudioTrack? = null
     var relay: LiveRelay? = null
@@ -120,7 +118,7 @@ class LiveVoice(
       val channel = peer.createDataChannel("oai-events", DataChannel.Init())
       val r = LiveRelay(scope, client::delegate, send = { text ->
         channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray()), false))
-      })
+      }, onSaid = onSaid)
       r.seed(history)
       relay = r
       channel.registerObserver(
@@ -141,7 +139,6 @@ class LiveVoice(
             override fun onMessage(buffer: DataChannel.Buffer) {
               val bytes = ByteArray(buffer.data.remaining()).also { buffer.data.get(it) }
               r.onMessage(String(bytes))
-              _turns.value = r.turns.value
             }
           },
       )
@@ -176,8 +173,9 @@ class LiveVoice(
       runCatching { track?.dispose() }
       audio.close()
       if (openedAt > 0) scope.launch { client.reportLive(((System.currentTimeMillis() - openedAt) / 1000).toInt()) }
+      // Before the session reads as off, so a Talk right after it starts from all of it.
+      relay?.finish()
       _state.value = State.OFF
-      onEnd(_turns.value)
     }
   }
 

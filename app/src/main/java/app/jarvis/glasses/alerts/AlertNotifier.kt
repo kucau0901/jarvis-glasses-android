@@ -12,7 +12,7 @@ import android.content.Intent
 import android.graphics.drawable.Icon
 import app.jarvis.glasses.MainActivity
 import app.jarvis.glasses.chat.Markdown
-import app.jarvis.glasses.hub.Hub
+import app.jarvis.glasses.chat.ChatLog
 import app.jarvis.glasses.hub.Said
 import app.jarvis.glasses.jarvis
 import app.jarvis.glasses.jarvis.Alert
@@ -34,8 +34,7 @@ import kotlinx.serialization.json.contentOrNull
 class AlertNotifier(
     private val context: Context,
     private val client: JarvisClient,
-    private val hub: Hub,
-    private val person: () -> Boolean,
+    private val chat: ChatLog,
     private val scope: CoroutineScope,
 ) {
   private val threads = Threads()
@@ -77,10 +76,10 @@ class AlertNotifier(
           .onFailure { answer = "Couldn't reach Jarvis: ${it.message}" }
       if (answer.isEmpty()) answer = "That ended without an answer. Try again."
       post(id, title, threads.add(id, Turn.jarvis(answer), alertText), working = false, quiet = true)
-      // In the shared history too, so Chat and the web app show it; what went wrong is not kept.
-      if (ok && person()) {
+      // In Chat's conversation too, so Chat and the web app show it; what went wrong is not kept.
+      if (ok) {
         val now = System.currentTimeMillis()
-        runCatching { hub.keep(listOf(Said(Said.newId(), now, "user", text), Said(Said.newId(), now, "assistant", answer))) }
+        chat.keep(listOf(Said(Said.newId(), now, "user", text), Said(Said.newId(), now, "assistant", answer)))
       }
     }
   }

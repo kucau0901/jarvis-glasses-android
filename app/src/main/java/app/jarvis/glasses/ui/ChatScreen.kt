@@ -31,16 +31,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import app.jarvis.glasses.JarvisApp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import app.jarvis.glasses.chat.Work
 import app.jarvis.glasses.hub.Named
-import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.hub.Link
 import app.jarvis.glasses.hub.Said
 import kotlinx.coroutines.launch
@@ -53,11 +52,16 @@ import kotlinx.serialization.json.jsonObject
 /** An email Jarvis wrote and holds for a tap (a `draft` event). */
 private data class Draft(val id: String, val to: String, val subject: String, val body: String)
 
-/** Typing to Jarvis, as the web app's Chat tab: the same history when signed in as a person. */
+/**
+ * Typing to Jarvis, as the web app's Chat tab: the one conversation ([app.jarvis.glasses.chat.ChatLog]),
+ * which Talk and Live add to as well, and the same as the web app's when signed in as a person.
+ */
 @Composable
 fun ChatScreen(app: JarvisApp, hooks: Hooks) {
   val scope = rememberCoroutineScope()
-  val said = remember { mutableStateListOf<Said>() }
+  val said by app.chat.said.collectAsStateWithLifecycle()
+  // Answers that are notices (a limit reached) or failures, by id: drawn apart, never kept.
+  val kinds by app.chat.kinds.collectAsStateWithLifecycle()
   val drafts = remember { mutableStateListOf<Draft>() }
   var text by remember { mutableStateOf("") }
   var photo by remember { mutableStateOf<ByteArray?>(null) }
@@ -66,15 +70,16 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
   var work by remember { mutableStateOf<Work?>(null) }
   var workRev by remember { mutableIntStateOf(0) }
   var read by remember { mutableStateOf<String?>(null) }
-  // Answers that are notices (a limit reached) or failures, by id: drawn apart, never kept.
-  val kinds = remember { mutableStateMapOf<String, String>() }
   val jobs = remember { mutableStateListOf<Named>() }
   val busy = work != null
   val list = rememberLazyListState()
   val person = app.prefs.token.startsWith("jss1_")
 
+  // Asking twice clears it: once to arm, once to clear (it goes on every screen of the person's).
+  var clearing by remember { mutableStateOf(false) }
+
   LaunchedEffect(person) {
-    if (person) runCatching { app.hub.conversation() }.onSuccess { said.clear(); said.addAll(it) }.onFailure { note = it.message ?: "" }
+    runCatching { app.chat.refresh() }.onFailure { note = it.message ?: "" }
   }
   LaunchedEffect(said.size, busy, workRev) { if (said.isNotEmpty()) list.animateScrollToItem(said.size + 1) } // + the heading
   // The keyboard shortens the list: keep its bottom where it was, as chat apps do.
@@ -93,7 +98,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
     text = ""
     photo = null
     val mine = Said(Said.newId(), System.currentTimeMillis(), "user", q)
-    said.add(mine)
+    app.chat.show(mine)
     jobs.clear()
     val w = Work()
     work = w
@@ -102,7 +107,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
       var kind = ""
       var notice = ""
       runCatching {
-            app.client.chat(Hub.transcript(said, System.currentTimeMillis()), shot) { ev ->
+            app.client.chat(app.chat.recent(), shot) { ev ->
               // The stream opened: Jarvis has the question ("Read", as Hark's chat says).
               read = mine.id
               when (ev.str("type")) {
@@ -128,11 +133,9 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
           .onFailure { answer = Said(Said.newId(), System.currentTimeMillis(), "assistant", "Could not reach Jarvis: ${it.message}"); kind = "bad" }
       work = null
       val a = answer ?: Said(Said.newId(), System.currentTimeMillis(), "assistant", "That ended without an answer. Try again.").also { kind = "bad" }
-      if (kind.isNotEmpty()) kinds[a.id] = kind
-      said.add(a)
-      if (notice.isNotEmpty()) Said(Said.newId(), System.currentTimeMillis(), "assistant", notice).let { kinds[it.id] = "limit"; said.add(it) }
       // What went wrong is not kept, as the web app does.
-      if (person && kind.isEmpty()) runCatching { app.hub.keep(listOf(mine, a)) }
+      if (kind.isEmpty()) app.chat.keep(listOf(mine, a)) else app.chat.show(a, kind)
+      if (notice.isNotEmpty()) app.chat.show(Said(Said.newId(), System.currentTimeMillis(), "assistant", notice), "limit")
     }
   }
 
@@ -145,7 +148,19 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
         contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 4.dp, bottom = if (photo != null) 128.dp else 84.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      item { Heading("Chat") }
+      item {
+        Heading("Chat") {
+          if (said.isNotEmpty() && !busy) {
+            HarkButton(if (clearing) "Clear everywhere?" else "Clear", solid = clearing) {
+              if (!clearing) clearing = true
+              else scope.launch {
+                clearing = false
+                runCatching { app.chat.clear() }.onSuccess { note = ""; drafts.clear(); jobs.clear() }.onFailure { note = it.message ?: "Not cleared" }
+              }
+            }
+          }
+        }
+      }
       if (said.isEmpty()) item { Text("Ask Jarvis anything. Answers spoken in the glasses show up here too when you're signed in.", style = MaterialTheme.typography.bodyMedium, color = h.dim) }
       items(said, key = { it.id }) { s -> SaidRow(s, kinds[s.id], read = s.id == read) }
       items(jobs, key = { it.id }) { j -> JobStarted(j) }

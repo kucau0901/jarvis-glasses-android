@@ -22,7 +22,12 @@ class LiveRelayTest {
     fun of(type: String) = all.filter { it["type"]!!.jsonPrimitive.content == type }.map { it["content"]!!.jsonPrimitive.content }
   }
 
-  private fun TestScope.relay(sent: Sent, events: List<String>, asked: MutableList<Pair<String, List<Turn>>> = mutableListOf()) =
+  private fun TestScope.relay(
+      sent: Sent,
+      events: List<String>,
+      asked: MutableList<Pair<String, List<Turn>>> = mutableListOf(),
+      said: MutableList<Turn> = mutableListOf(),
+  ) =
       LiveRelay(
           this,
           delegate = { id, transcript, onEvent ->
@@ -30,8 +35,25 @@ class LiveRelayTest {
             events.forEach { onEvent(obj(it)) }
           },
           send = { sent.all += obj(it) },
+          onSaid = { said += it },
           now = { testScheduler.currentTime },
       )
+
+  @Test
+  fun eachTurnIsHandedOnOnceFinished() = runTest {
+    val said = mutableListOf<Turn>()
+    val r = relay(Sent(), emptyList(), said = said)
+    r.seed(listOf(Turn.user("typed in Chat")))
+    r.onMessage("""{"type":"session.input_transcript.delta","delta":"what's on "}""")
+    r.onMessage("""{"type":"session.input_transcript.delta","delta":"today "}""")
+    // Not yet: the wearer may still be talking. The seed is never handed on.
+    assertTrue(said.isEmpty())
+    r.onMessage("""{"type":"session.output_transcript.delta","delta":"Two meetings."}""")
+    assertEquals(listOf(Turn.user("what's on today")), said)
+    r.finish()
+    r.finish()
+    assertEquals(listOf(Turn.user("what's on today"), Turn.jarvis("Two meetings.")), said)
+  }
 
   @Test
   fun transcriptDeltasBuildTurns() = runTest {

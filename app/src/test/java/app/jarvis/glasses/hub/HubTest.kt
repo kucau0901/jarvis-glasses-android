@@ -1,7 +1,6 @@
 package app.jarvis.glasses.hub
 
 import app.jarvis.glasses.jarvis.JarvisClient
-import app.jarvis.glasses.jarvis.Turn
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -286,14 +285,5 @@ class HubTest {
     val p = hub.proposals()
     assertEquals("Archive", p.open.single().verb)
     assertEquals("when you get home", p.later.single().`when`)
-  }
-
-  @Test
-  fun aTypedQuestionCarriesRecentTurnsOnly() {
-    val now = 10 * 3_600_000L
-    val history = listOf(Said("old0001", now - 4 * 3_600_000L, "user", "old")) + List(25) { Said("n$it" + "aaaa", now - 1000, "user", "q$it") }
-    val t = Hub.transcript(history, now)
-    assertEquals(20, t.size)
-    assertTrue(t.none { it == Turn("user", "old") })
   }
 }

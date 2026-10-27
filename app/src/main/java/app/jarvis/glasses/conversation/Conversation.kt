@@ -47,14 +47,24 @@ interface Brain {
   suspend fun speech(text: String): ByteArray?
 }
 
+/** The conversation Talk shares with Chat and Live ([app.jarvis.glasses.chat.ChatLog]). */
+interface Memory {
+  /** What a question goes with: the recent part of the conversation. */
+  fun recent(): List<Turn>
+
+  /** [turns] just said, kept; after [alert] when they reply to one Jarvis said first. */
+  fun keep(turns: List<Turn>, alert: Alert? = null)
+}
+
 /**
  * A spoken conversation through the glasses, with nothing to touch: it starts from "Hey Meta,
  * open Jarvis", from the app, or from Jarvis itself (an alert, said first), and each answer is
  * followed by the microphone opening again for a follow-up while [followUps] is on. Silence, or a
  * closing like "thanks" or "dah", ends it.
  *
- * The conversation so far goes with each question as `context`, so "and tomorrow?" and "yes, do
- * that" (after an alert) are understood. It is forgotten after [forgetAfterMs] of nothing.
+ * The recent conversation, the one Chat shows ([memory]), goes with each question as `context`, so
+ * "and tomorrow?" and "yes, do that" (after an alert) are understood, and each question answered is
+ * kept there with its answer.
  */
 class Conversation(
     private val scope: CoroutineScope,
@@ -62,23 +72,21 @@ class Conversation(
     private val mouth: Mouth,
     private val eyes: Eyes,
     private val brain: Brain,
+    private val memory: Memory,
     private val followUps: () -> Boolean,
-    private val now: () -> Long = System::currentTimeMillis,
 ) {
   enum class Status { IDLE, LISTENING, THINKING, SPEAKING }
 
   private val _status = MutableStateFlow(Status.IDLE)
   val status: StateFlow<Status> = _status
 
-  private val _turns = MutableStateFlow<List<Turn>>(emptyList())
-  val turns: StateFlow<List<Turn>> = _turns
-
   private val _note = MutableStateFlow("")
   /** The last thing worth showing on the phone: progress, a failure, why nothing happened. */
   val note: StateFlow<String> = _note
 
   private var job: Job? = null
-  private var lastActive = 0L
+  // An alert said first and not yet replied to: asked with, and kept before the reply.
+  private var opened: Alert? = null
 
   val isBusy: Boolean
     get() = job?.isActive == true
@@ -95,17 +103,8 @@ class Conversation(
     job?.cancel()
   }
 
-  /** The conversation so far, unless it has been forgotten: what a live session starts from. */
-  fun recent(): List<Turn> = if (now() - lastActive > forgetAfterMs) emptyList() else _turns.value
-
-  /** Takes on what was said in a live session, so a push-to-talk follow-up knows it. */
-  fun adopt(turns: List<Turn>) {
-    _turns.value = turns.takeLast(maxTurns)
-    lastActive = now()
-  }
-
   private suspend fun run(opening: Alert?) {
-    if (now() - lastActive > forgetAfterMs) _turns.value = emptyList()
+    opened = opening
     try {
       if (!mouth.open()) {
         _note.value = "Couldn't open the microphone and speaker"
@@ -113,7 +112,6 @@ class Conversation(
       }
       if (opening != null) {
         _status.value = Status.SPEAKING
-        remember(Turn.jarvis(opening.text))
         val audio = runCatching { brain.speech(opening.text) }.getOrNull()
         if (audio != null) mouth.play(audio) else mouth.say(opening.text)
       }
@@ -145,7 +143,6 @@ class Conversation(
       _note.value = e.message ?: "Jarvis couldn't be reached"
       runCatching { mouth.say("I couldn't reach Jarvis just now.") }
     } finally {
-      lastActive = now()
       mouth.close()
       _status.value = Status.IDLE
     }
@@ -153,8 +150,7 @@ class Conversation(
 
   // Its own scope, so stopping the conversation stops the playing too.
   private suspend fun answer(heard: String, photo: ByteArray?) = coroutineScope {
-    val context = _turns.value
-    remember(Turn.user(heard))
+    val context = memory.recent() + listOfNotNull(opened?.let { Turn.jarvis(it.text) })
     _note.value = ""
     // Sentences are played as they arrive, while the rest of the answer is still coming.
     val clips = Channel<ByteArray>(Channel.UNLIMITED)
@@ -181,22 +177,20 @@ class Conversation(
           clips.close()
         }
     player.join()
-    remember(Turn.jarvis(reply.text))
+    // What went wrong is not kept, as Chat does.
+    if (reply.ok && reply.text.isNotBlank()) {
+      memory.keep(listOf(Turn.user(heard), Turn.jarvis(reply.text)), opened)
+      opened = null
+    }
     if (!spoke && reply.text.isNotBlank()) {
       _status.value = Status.SPEAKING
       mouth.say(reply.text)
     }
   }
 
-  private fun remember(turn: Turn) {
-    _turns.value = (_turns.value + turn).takeLast(maxTurns)
-  }
-
   companion object {
     const val firstWaitMs = 8_000L
     const val followUpWaitMs = 8_000L
     const val replyWaitMs = 7_000L
-    const val forgetAfterMs = 10 * 60_000L
-    const val maxTurns = 20
   }
 }

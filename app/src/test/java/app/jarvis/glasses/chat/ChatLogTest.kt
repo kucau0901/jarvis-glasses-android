@@ -1,0 +1,94 @@
+package app.jarvis.glasses.chat
+
+import app.jarvis.glasses.hub.Named
+import app.jarvis.glasses.hub.Said
+import app.jarvis.glasses.jarvis.Alert
+import app.jarvis.glasses.jarvis.Turn
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ChatLogTest {
+  private class Jarvis(var kept: List<Said> = emptyList()) {
+    val saved = mutableListOf<List<Said>>()
+    var wiped = false
+  }
+
+  private fun TestScope.log(j: Jarvis, person: Boolean = true) =
+      ChatLog(this, { j.kept }, { j.saved += it }, { j.wiped = true }, person = { person }, now = { NOW })
+
+  @Test
+  fun aQuestionCarriesRecentTurnsOnly() {
+    val history = listOf(Said("old0001", NOW - 4 * 3_600_000L, "user", "old")) + List(25) { Said("n$it" + "aaaa", NOW - 1000, "user", "q$it") }
+    val t = ChatLog.transcript(history, emptySet(), NOW)
+    assertEquals(20, t.size)
+    assertTrue(t.none { it == Turn("user", "old") })
+  }
+
+  @Test
+  fun whatARoutineSaidIsNamedAndWhatIsOnlyShownIsLeftOut() {
+    val history =
+        listOf(
+            Said("r000001", NOW, "assistant", "Two meetings.", routine = Named("rt1", "Morning brief")),
+            Said("bad0001", NOW, "assistant", "Couldn't reach Jarvis"),
+        )
+    assertEquals(listOf(Turn.jarvis("Morning brief: Two meetings.")), ChatLog.transcript(history, setOf("bad0001"), NOW))
+  }
+
+  @Test
+  fun aRefreshKeepsWhatJarvisHasNotGotYet() {
+    val kept = listOf(Said("k000001", 1, "user", "from the web"))
+    val here = listOf(Said("k000001", 1, "user", "from the web"), Said("h000001", 2, "user", "waiting for its answer"))
+    assertEquals(listOf("k000001", "h000001"), ChatLog.merged(kept, here).map { it.id })
+  }
+
+  @Test
+  fun spokenTurnsAreKeptAfterTheAlertTheyReplyTo() = runTest {
+    val j = Jarvis()
+    val c = log(j)
+    c.keep(listOf(Turn.user("remind me later"), Turn.jarvis("Done.")), Alert("al00001", "Office", "Leave now.", speak = true, urgent = false))
+    advanceUntilIdle()
+    assertEquals(listOf("al00001"), c.said.value.take(1).map { it.id })
+    assertEquals(listOf("Leave now.", "remind me later", "Done."), j.saved.single().map { it.text })
+  }
+
+  @Test
+  fun keptOnceShownAndSentEvenIfShownBefore() = runTest {
+    val j = Jarvis()
+    val c = log(j)
+    val q = Said("q000001", NOW, "user", "hi")
+    c.show(q)
+    c.keep(listOf(q, Said("a000001", NOW, "assistant", "Hello.")))
+    advanceUntilIdle()
+    assertEquals(2, c.said.value.size)
+    assertEquals(listOf("q000001", "a000001"), j.saved.single().map { it.id })
+  }
+
+  @Test
+  fun withADeviceTokenNothingGoesToJarvis() = runTest {
+    val j = Jarvis(listOf(Said("k000001", 1, "user", "not this")))
+    val c = log(j, person = false)
+    c.refresh()
+    c.keep(listOf(Turn.user("hi"), Turn.jarvis("Hello.")))
+    advanceUntilIdle()
+    assertTrue(j.saved.isEmpty())
+    assertEquals(listOf("hi", "Hello."), c.said.value.map { it.text })
+  }
+
+  @Test
+  fun clearEmptiesItEverywhere() = runTest {
+    val j = Jarvis()
+    val c = log(j)
+    c.show(Said("x000001", NOW, "assistant", "Not now"), "bad")
+    c.clear()
+    assertTrue(j.wiped)
+    assertTrue(c.said.value.isEmpty() && c.kinds.value.isEmpty())
+  }
+
+  private companion object {
+    const val NOW = 10 * 3_600_000L
+  }
+}
