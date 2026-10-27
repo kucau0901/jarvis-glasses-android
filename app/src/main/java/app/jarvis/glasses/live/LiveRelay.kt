@@ -47,6 +47,11 @@ class LiveRelay(
   val working: Boolean
     get() = work?.isActive == true
 
+  /** The session is open: quiet is counted from now, not from while it was connecting. */
+  fun opened() {
+    lastActivity = now()
+  }
+
   fun seed(history: List<Turn>) {
     _turns.value = history
     seeded = history.size

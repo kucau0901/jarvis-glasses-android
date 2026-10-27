@@ -70,14 +70,30 @@ class GlassesTest {
     assertEquals(Link.CONNECTED, shownGlasses(listOf(stale), "A")!!.link)
   }
 
-  @Test fun glassesTakenOffOrFoldedAreSaidSo() {
-    fun pair(link: Link = Link.CONNECTED, worn: Boolean? = null, folded: Boolean? = null) = GlassesState("RB Meta 0000", link = link, worn = worn, folded = folded)
-    assertFalse("worn", takenOff(listOf(pair(worn = true, folded = false))))
-    assertTrue("off the face", takenOff(listOf(pair(worn = false))))
-    assertTrue("folded", takenOff(listOf(pair(folded = true))))
-    // A maker that says neither: never taken for off.
-    assertFalse("not said", takenOff(listOf(pair())))
-    assertFalse("none connected", takenOff(listOf(pair(link = Link.AWAY, worn = false))))
-    assertFalse("another pair is being worn", takenOff(listOf(pair(folded = true), pair(worn = true))))
+  private fun pair(link: Link = Link.CONNECTED, worn: Boolean? = null, folded: Boolean? = null, name: String = "RB Meta 0000") =
+      GlassesState(name, link = link, worn = worn, folded = folded)
+
+  @Test fun foldedGlassesAreSaidSo() {
+    assertTrue("folded", folded(listOf(pair(folded = true))))
+    assertFalse("open", folded(listOf(pair(worn = true, folded = false))))
+    // "Off the face" alone is not folded: the toolkit has said it of glasses being worn.
+    assertFalse("off the face", folded(listOf(pair(worn = false, folded = false))))
+    assertFalse("not said", folded(listOf(pair())))
+    assertFalse("none connected", folded(listOf(pair(link = Link.AWAY, folded = true))))
+    assertFalse("another pair is being worn", folded(listOf(pair(folded = true), pair(worn = true, name = "Other"))))
+  }
+
+  @Test fun onlyAChangeOnTheSamePairTakesThemOff() {
+    val worn = listOf(pair(worn = true, folded = false))
+    assertTrue("folded", cameOff(worn, listOf(pair(worn = true, folded = true))))
+    assertTrue("taken off the face", cameOff(worn, listOf(pair(worn = false, folded = false))))
+    assertFalse("still worn", cameOff(worn, worn))
+    // Said to be off without having been on: not trusted.
+    assertFalse("off, never on", cameOff(listOf(pair(worn = false, folded = false)), listOf(pair(worn = false, folded = false))))
+    assertFalse("unknown, then off", cameOff(listOf(pair(folded = false)), listOf(pair(worn = false, folded = false))))
+    // Connecting already folded, or going away: not taken off.
+    assertFalse("connected folded", cameOff(listOf(pair(link = Link.AWAY, folded = false)), listOf(pair(folded = true))))
+    assertFalse("gone", cameOff(worn, listOf(pair(link = Link.AWAY, worn = false))))
+    assertFalse("a pair first seen", cameOff(emptyList(), listOf(pair(worn = false, folded = true))))
   }
 }

@@ -187,7 +187,10 @@ voice's WebRTC, and an alert arriving with the phone locked.
   earbuds connected at the same time are not used.
 - An alert that comes while a turn-by-turn conversation is going goes to the phone as a
   notification instead.
-- Taking the glasses off or folding them ends a conversation in them at once, Talk's or Live's,
-  and nothing more is heard; an alert that comes while they are off or folded is a notification.
-  Talk started with them already folded uses the phone, as before.
+- Folding the glasses, or taking them off when they had said they were worn, ends a conversation
+  in them at once, Talk's or Live's, and nothing more is heard; an alert that comes while they are
+  folded is a notification. Meta's toolkit can say "off the face" of glasses being worn, so that
+  alone ends nothing. Talk started with them already folded uses the phone, as before.
+- Opened from inside a Meta AI call, Jarvis gets no sound from the glasses (the call holds them) and
+  uses the phone's microphone and speaker. Say "Hey Meta, open Jarvis" outside a call.
 - arm64 phones only (the WebRTC libraries are large).

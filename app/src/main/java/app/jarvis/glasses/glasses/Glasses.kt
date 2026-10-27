@@ -51,14 +51,25 @@ fun shownGlasses(known: List<GlassesState>, headset: String?): GlassesState? {
 }
 
 /**
- * Whether the glasses in use have been taken off or folded: of those connected, none is on a face
- * and one is said to be off it or folded. Unknown counts as worn, so glasses whose maker doesn't
- * say are never taken for off.
+ * Whether the glasses in use are folded: of those connected, none is on a face and one has its arms
+ * closed. Unknown counts as open.
  */
-fun takenOff(known: List<GlassesState>): Boolean {
+fun folded(known: List<GlassesState>): Boolean {
   val connected = known.filter { it.link == GlassesState.Link.CONNECTED }
-  return connected.none { it.worn == true } && connected.any { it.worn == false || it.folded == true }
+  return connected.none { it.worn == true } && connected.any { it.folded == true }
 }
+
+/**
+ * Whether a pair still connected was just taken off: from [before] to [now] it folded, or went from
+ * on a face to off it. Only a change seen on the same pair counts: "off the face" alone can't be
+ * trusted (Meta's toolkit has said it of glasses being worn), nor a pair connecting already folded.
+ */
+fun cameOff(before: List<GlassesState>, now: List<GlassesState>): Boolean =
+    now.any { g ->
+      val was = before.firstOrNull { it.name == g.name } ?: return@any false
+      g.link == GlassesState.Link.CONNECTED && was.link == GlassesState.Link.CONNECTED &&
+          ((was.folded == false && g.folded == true) || (was.worn == true && g.worn == false))
+    }
 
 /** Under this a battery is low. */
 const val LOW_GLASSES = 20

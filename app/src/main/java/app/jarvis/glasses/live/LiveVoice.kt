@@ -143,6 +143,7 @@ class LiveVoice(
                 DataChannel.State.OPEN -> {
                   Log.i(TAG, "live")
                   this@LiveVoice.channel = channel
+                  r.opened()
                   // Not before: GPT-Live drops what is sent into a channel that isn't open yet.
                   first?.let { channel.send(DataChannel.Buffer(ByteBuffer.wrap(it.toByteArray()), false)) }
                   _state.value = State.LIVE
