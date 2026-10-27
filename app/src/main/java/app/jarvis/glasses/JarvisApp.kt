@@ -6,6 +6,7 @@ import app.jarvis.glasses.audio.GlassesAudio
 import app.jarvis.glasses.chat.ChatLog
 import app.jarvis.glasses.conversation.Conversation
 import app.jarvis.glasses.glasses.GlassesLink
+import app.jarvis.glasses.glasses.takenOff
 import app.jarvis.glasses.jarvis.Address
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.AlertSocket
@@ -18,6 +19,9 @@ import app.jarvis.glasses.live.LiveVoice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** The app's one set of parts, shared by the screen and the service. */
@@ -53,6 +57,17 @@ class JarvisApp : Application() {
     // In front of someone: the glasses say an alert, or a notification shows it. Jarvis waits for
     // this app's word only when it is, so without it every alert also went out by push.
     scope.launch { audio.connected.collect { refreshPresence() } }
+    // The glasses taken off or folded: a conversation in them ends at once, Talk's or Live's, and
+    // nothing more is heard. Whoever took them off may be talking to someone else. Only the change
+    // ends one: Talk started with them already folded uses the phone, on purpose.
+    scope.launch {
+      link.glasses.map { takenOff(it) }.distinctUntilChanged().drop(1).collect { off ->
+        if (off) {
+          conversation.stop()
+          live.stop()
+        }
+      }
+    }
     scope.launch { runCatching { chat.refresh() } }
   }
 
@@ -92,7 +107,8 @@ class JarvisApp : Application() {
     chat.arrived(alert)
     val talk = alert.talk && prefs.speakAlerts
     if (live.state.value == LiveVoice.State.LIVE) return (talk && live.tell(alert)) || notifier.show(alert)
-    if (!talk || !audio.connected.value || live.state.value != LiveVoice.State.OFF || conversation.isBusy) return notifier.show(alert)
+    // Not into glasses that aren't being worn: a notification instead.
+    if (!talk || !audio.connected.value || takenOff(link.glasses.value) || live.state.value != LiveVoice.State.OFF || conversation.isBusy) return notifier.show(alert)
     val started =
         if (prefs.live) {
           live.start(chat.recent(), onFail = { conversation.start(opening = alert) }, onSaid = { chat.keep(listOf(it)) }, opening = alert)

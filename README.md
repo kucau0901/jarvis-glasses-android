@@ -187,4 +187,7 @@ voice's WebRTC, and an alert arriving with the phone locked.
   earbuds connected at the same time are not used.
 - An alert that comes while a turn-by-turn conversation is going goes to the phone as a
   notification instead.
+- Taking the glasses off or folding them ends a conversation in them at once, Talk's or Live's,
+  and nothing more is heard; an alert that comes while they are off or folded is a notification.
+  Talk started with them already folded uses the phone, as before.
 - arm64 phones only (the WebRTC libraries are large).

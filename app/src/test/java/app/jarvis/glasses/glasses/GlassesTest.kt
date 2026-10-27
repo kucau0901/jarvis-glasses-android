@@ -69,4 +69,15 @@ class GlassesTest {
     val stale = GlassesState("A", model = "Ray-Ban Meta", link = Link.AWAY, battery = 50)
     assertEquals(Link.CONNECTED, shownGlasses(listOf(stale), "A")!!.link)
   }
+
+  @Test fun glassesTakenOffOrFoldedAreSaidSo() {
+    fun pair(link: Link = Link.CONNECTED, worn: Boolean? = null, folded: Boolean? = null) = GlassesState("RB Meta 0000", link = link, worn = worn, folded = folded)
+    assertFalse("worn", takenOff(listOf(pair(worn = true, folded = false))))
+    assertTrue("off the face", takenOff(listOf(pair(worn = false))))
+    assertTrue("folded", takenOff(listOf(pair(folded = true))))
+    // A maker that says neither: never taken for off.
+    assertFalse("not said", takenOff(listOf(pair())))
+    assertFalse("none connected", takenOff(listOf(pair(link = Link.AWAY, worn = false))))
+    assertFalse("another pair is being worn", takenOff(listOf(pair(folded = true), pair(worn = true))))
+  }
 }

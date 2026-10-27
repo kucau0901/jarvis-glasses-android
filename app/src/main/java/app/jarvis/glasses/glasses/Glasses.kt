@@ -50,5 +50,15 @@ fun shownGlasses(known: List<GlassesState>, headset: String?): GlassesState? {
   }
 }
 
+/**
+ * Whether the glasses in use have been taken off or folded: of those connected, none is on a face
+ * and one is said to be off it or folded. Unknown counts as worn, so glasses whose maker doesn't
+ * say are never taken for off.
+ */
+fun takenOff(known: List<GlassesState>): Boolean {
+  val connected = known.filter { it.link == GlassesState.Link.CONNECTED }
+  return connected.none { it.worn == true } && connected.any { it.worn == false || it.folded == true }
+}
+
 /** Under this a battery is low. */
 const val LOW_GLASSES = 20
