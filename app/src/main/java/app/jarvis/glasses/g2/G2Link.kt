@@ -8,18 +8,25 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.RequiresApi
+import app.jarvis.glasses.glasses.GlassesSource
+import app.jarvis.glasses.glasses.GlassesState
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -34,7 +41,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 @SuppressLint("MissingPermission")
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-class G2Link(context: Context) {
+class G2Link(context: Context) : GlassesSource {
   private val context = context.applicationContext
   private val bluetooth = context.getSystemService(BluetoothManager::class.java)
   private val main = Handler(Looper.getMainLooper())
@@ -60,6 +67,51 @@ class G2Link(context: Context) {
 
   private val _touches = MutableSharedFlow<G2Touch>(extraBufferCapacity = 16)
   val touches: SharedFlow<G2Touch> = _touches
+
+  private val _glasses = MutableStateFlow<List<GlassesState>>(emptyList())
+  /** The G2 for Home: paired or not, with the phone or not, and its battery when it was last held. */
+  override val glasses: StateFlow<List<GlassesState>> = _glasses
+
+  private var info: G2Info? = null
+  private var infoAt = 0L
+  /** The right arm's firmware, as the glasses last said. */
+  var firmware: String? = null
+    private set
+
+  init {
+    val filter =
+        IntentFilter().apply {
+          addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+          addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+          addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        }
+    this.context.registerReceiver(
+        object : BroadcastReceiver() {
+          override fun onReceive(c: Context, i: Intent) = refresh()
+        },
+        filter,
+        Context.RECEIVER_NOT_EXPORTED,
+    )
+    refresh()
+  }
+
+  /** What Home shows of the G2, again: after a link change or what the glasses said. */
+  private fun refresh() {
+    val (l, _) = arms() ?: return run { _glasses.value = emptyList() }
+    // The battery as last heard, while it can still be right.
+    val fresh = info.takeIf { System.currentTimeMillis() - infoAt < FRESH_MS }
+    _glasses.value =
+        listOf(
+            GlassesState(
+                name = l.name.substringBefore("_L_").ifBlank { "Even G2" },
+                model = "Even Realities G2",
+                link = if (reachable()) GlassesState.Link.CONNECTED else GlassesState.Link.AWAY,
+                battery = fresh?.battery,
+                charging = fresh?.charging,
+                display = true,
+            )
+        )
+  }
 
   /** Both arms of a G2, as the phone paired them ("Even G2_32_L_…", "…_R_…"), or null. */
   private fun arms(): Pair<BluetoothDevice, BluetoothDevice>? {
@@ -296,6 +348,7 @@ class G2Link(context: Context) {
             pageShown = false
             main.removeCallbacks(heartbeats)
             main.postDelayed(heartbeats, 5_000)
+            send(G2Service.G2_SETTING, G2Setting.ask(nextMagic()), true)
             signing.complete(true)
           }
         },
@@ -324,7 +377,20 @@ class G2Link(context: Context) {
 
   private fun onNotify(arm: Arm, raw: ByteArray) {
     val (service, payload) = arm.reassembler.accept(raw, arm.side) ?: return
-    if (service != G2Service.EVEN_HUB) return
+    if (service == G2Service.G2_SETTING) {
+      g2Info(payload)?.let {
+        info = G2Info(it.battery ?: info?.battery, it.charging ?: info?.charging, it.firmware ?: info?.firmware)
+        infoAt = System.currentTimeMillis()
+        firmware = info?.firmware
+        refresh()
+      }
+      return
+    }
+    if (service != G2Service.EVEN_HUB) {
+      // What the glasses say that Jarvis doesn't read yet (whether they are worn is in one of these).
+      if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG, "${arm.side}: service ${"%02x".format(service)}: ${payload.joinToString("") { "%02x".format(it) }}")
+      return
+    }
     val touch = g2Touch(payload) ?: return
     Log.i(TAG, "touch: $touch")
     if (touch == G2Touch.CLOSED) pageShown = false
@@ -333,5 +399,7 @@ class G2Link(context: Context) {
 
   private companion object {
     const val TAG = "G2"
+    /** How long a battery reading is shown for: it is only heard while an alert is up. */
+    const val FRESH_MS = 30 * 60_000L
   }
 }

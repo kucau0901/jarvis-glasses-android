@@ -1,12 +1,12 @@
 package app.jarvis.glasses.g2
 
 import android.os.Build
+import android.util.Log
 import androidx.annotation.RequiresApi
 import app.jarvis.glasses.audio.Lc3Decoder
 import app.jarvis.glasses.audio.SpeechGate
 import app.jarvis.glasses.audio.Wav
 import app.jarvis.glasses.conversation.Ears
-import android.util.Log
 import java.io.ByteArrayOutputStream
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
@@ -17,12 +17,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * The G2's microphone, opened only when the wearer taps (the touchpad or the ring) or swipes up:
- * never by itself, since nothing tells whether the glasses are being worn. Until then the page
- * stays as it is, an alert or an answer, for [waitMs]; a swipe down puts it away.
+ * The G2's microphone, opened only when the wearer taps (the touchpad or the ring): never by
+ * itself, since nothing tells whether the glasses are being worn. Until then what is on the
+ * [screen], an alert or an answer, stays for [waitMs]; swiping turns its pages, and a swipe down on
+ * the last puts it away.
  */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-class G2Ears(private val link: G2Link, private val waitMs: Long = 60_000) : Ears {
+class G2Ears(private val link: G2Link, private val screen: G2Screen, private val waitMs: Long = 60_000) : Ears {
   enum class End { DISMISSED, UNANSWERED }
 
   /** Why the last turn heard nothing because of the wearer, or null when it didn't. */
@@ -32,19 +33,45 @@ class G2Ears(private val link: G2Link, private val waitMs: Long = 60_000) : Ears
   /** The microphone sent nothing at all last time. */
   private var silent = false
 
+  /** The wearer tapped already: the next [listen] opens the microphone at once. */
+  @Volatile private var armed = false
+
+  fun arm() {
+    armed = true
+  }
+
   override suspend fun listen(startTimeoutMs: Long): ByteArray? {
     ended = null
-    // Not a double tap: the glasses take that for their own menu.
-    val touch = withTimeoutOrNull(waitMs) { link.touches.first { it != G2Touch.DOUBLE_TAP } }
-    when (touch) {
-      null -> return null.also { ended = End.UNANSWERED }
-      G2Touch.DOWN, G2Touch.CLOSED -> return null.also { ended = End.DISMISSED }
-      G2Touch.TAP, G2Touch.UP, G2Touch.DOUBLE_TAP -> Unit
+    if (!armed) {
+      when (awaitReply()) {
+        null -> return null.also { ended = End.UNANSWERED }
+        false -> return null.also { ended = End.DISMISSED }
+        true -> Unit
+      }
     }
-    link.show(LISTENING)
+    armed = false
+    screen.plain(LISTENING)
     val wav = record(startTimeoutMs)
-    if (wav != null) link.show(THINKING) else if (ended == null) link.show(if (silent) NO_MIC else NOTHING_HEARD)
+    if (wav != null) screen.plain(THINKING) else if (ended == null) screen.show(if (silent) NO_MIC else NOTHING_HEARD)
     return wav
+  }
+
+  /**
+   * Waits for the wearer, turning pages as they swipe: true for a tap (reply), false when they put
+   * it away, null when nothing came for [waitMs]. Not a double tap: the glasses take that for their
+   * own menu.
+   */
+  suspend fun awaitReply(): Boolean? {
+    while (true) {
+      when (withTimeoutOrNull(waitMs) { link.touches.first { it != G2Touch.DOUBLE_TAP } }) {
+        null -> return null
+        G2Touch.TAP -> return true
+        G2Touch.DOWN -> if (!screen.next()) return false
+        G2Touch.UP -> screen.previous()
+        G2Touch.CLOSED -> return false
+        G2Touch.DOUBLE_TAP -> Unit
+      }
+    }
   }
 
   /** One utterance as WAV, or null when nobody spoke within [startTimeoutMs] or it was put away. */

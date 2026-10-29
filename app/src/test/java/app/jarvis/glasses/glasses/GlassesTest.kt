@@ -96,4 +96,11 @@ class GlassesTest {
     assertFalse("gone", cameOff(worn, listOf(pair(link = Link.AWAY, worn = false))))
     assertFalse("a pair first seen", cameOff(emptyList(), listOf(pair(worn = false, folded = true))))
   }
+
+  @Test fun onlyAPairThatSaysSoIsWorn() {
+    assertTrue(worn(listOf(GlassesState("a", link = Link.CONNECTED, worn = true))))
+    assertFalse(worn(listOf(GlassesState("a", link = Link.CONNECTED, worn = false))))
+    // A G2 says nothing either way; one away can't be in use.
+    assertFalse(worn(listOf(GlassesState("g2", link = Link.CONNECTED, display = true), GlassesState("a", link = Link.AWAY, worn = true))))
+  }
 }

@@ -111,9 +111,11 @@ on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by ste
   doesn't, or Jarvis says not to, alerts come as notifications. Android's notification settings for
   the app (channel "Jarvis's alerts") decide how they look and sound.
 - **Even Realities G2.** With a G2 paired to the phone in Even's app, and Ray-Ban glasses not in
-  use, an alert shows on the G2's display. **Tap** (the touchpad or the R1 ring) or **swipe up** to
-  reply: "Listening..." shows, and the G2's microphone hears you. The answer is shown, written for
-  the display. Tap again to follow up, **swipe down** to close; untouched, it goes after a minute.
+  use, an alert shows on the G2's display. **Tap** (the touchpad or the R1 ring) to reply:
+  "Listening..." shows, and the G2's microphone hears you. The answer is shown, written for the
+  display. Something longer comes in pages (1/3, 2/3…): **swipe down** for the next, **up** for the
+  one before, and down on the last to close. Tap again to follow up; untouched, it goes after a
+  minute. Home shows the G2, and its battery from the last time an alert was up.
   The microphone never opens by itself: the G2 can't say whether it is being worn. The Even app
   stays connected all along, and has the glasses back as soon as the alert closes, so "Hey Even"
   and its own notifications go on working. **Settings → Voice → Show alerts on Even G2 glasses**
@@ -189,7 +191,8 @@ glasses. `.mcp.json` connects Meta's toolkit docs server.
 Not covered by tests, to try with the glasses: the headset routing, "Hey Meta", the camera, live
 voice's WebRTC, an alert arriving with the phone locked, and the G2's link, microphone and LC3
 decoder. A debug build shows a test alert on a G2 from the computer:
-`adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --es text "'The gate is open.'"`.
+`adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --es text "'The gate is open.'"`;
+`--ei hold 5` instead holds the G2 for five minutes, to see whether the link stays up.
 
 ## Limits
 

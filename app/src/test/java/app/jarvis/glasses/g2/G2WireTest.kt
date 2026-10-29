@@ -75,4 +75,11 @@ class G2WireTest {
     // The last container carries the text.
     assertEquals("Hello", String(parseProto(containers[3] as ByteArray)[12] as ByteArray))
   }
+
+  @Test fun theBatteryAndFirmwareAreReadFromTheSettings() {
+    val info = Proto().int(1, 1).int(2, 35).int(3, 8).string(5, "2.4.0.24").string(6, "2.4.0.25").int(12, 80).int(13, 1).build()
+    assertEquals(G2Info(80, true, "2.4.0.25"), g2Info(Proto().int(1, 2).int(2, 6).bytes(4, info).build()))
+    assertNull(g2Info(Proto().int(1, 1).int(2, 7).build()))
+    assertNull(g2Info(Proto().int(1, 2).bytes(4, Proto().int(12, 140).build()).build()))
+  }
 }

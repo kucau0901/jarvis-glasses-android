@@ -232,7 +232,8 @@ fun SettingsScreen(app: JarvisApp, hooks: Hooks) {
         if (app.g2 != null) {
           Toggle("Show alerts on Even G2 glasses", g2) { g2 = it; app.prefs.g2 = it }
           Text(
-              "When the G2 is with this phone and Ray-Ban glasses aren't in use. Tap or swipe up to reply, and the microphone opens; swipe down to close.",
+              "When the G2 is with this phone and Ray-Ban glasses aren't in use. Tap to reply, and the microphone opens; swipe to turn the pages, and down on the last to close." +
+                  (app.g2Link?.firmware?.let { " G2 firmware $it." } ?: ""),
               style = MaterialTheme.typography.bodySmall,
               color = Even.colors.dim,
           )

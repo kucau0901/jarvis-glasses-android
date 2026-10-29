@@ -13,9 +13,7 @@ import app.jarvis.glasses.jarvis.Turn
 import app.jarvis.glasses.jarvis.VoiceEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Jarvis speaking first on Even Realities G2 glasses: an alert shown on the display, and a
@@ -34,8 +32,9 @@ class G2Alerts(
     memory: Memory,
     followUps: () -> Boolean,
 ) {
-  private val ears = G2Ears(link)
-  private val conversation = Conversation(scope, ears, Lens(link), { null }, ShownBrain(client), memory, followUps)
+  private val screen = G2Screen(link::show)
+  private val ears = G2Ears(link, screen)
+  private val conversation = Conversation(scope, ears, Lens(screen), { null }, ShownBrain(client), memory, followUps)
   private var job: Job? = null
 
   /** Whether G2 glasses are with the phone and free to show something now. */
@@ -57,10 +56,15 @@ class G2Alerts(
             }
             conversation.start(opening = alert)
             conversation.join()
-            conversation.note.value.takeIf { it.isNotEmpty() }?.let { Log.i(TAG, "conversation: $it") }
             // Ended by Jarvis's side (no follow-ups, a closing word, a failure): what it said stays
-            // up until the wearer puts it away, or for as long as a reply would have been waited for.
-            if (ears.ended == null) withTimeoutOrNull(LINGER_MS) { link.touches.first() }
+            // up, a tap starting another turn, until the wearer puts it away or leaves it.
+            while (ears.ended == null) {
+              conversation.note.value.takeIf { it.isNotEmpty() }?.let { Log.i(TAG, "conversation: $it") }
+              if (ears.awaitReply() != true) break
+              ears.arm()
+              conversation.start()
+              conversation.join()
+            }
           } finally {
             link.close()
           }
@@ -68,8 +72,8 @@ class G2Alerts(
     return true
   }
 
-  /** Text on the glasses for everything Jarvis says; how to answer under it. */
-  private class Lens(private val link: G2Link) : Mouth {
+  /** Text on the glasses for everything Jarvis says, a page at a time. */
+  private class Lens(private val screen: G2Screen) : Mouth {
     // The glasses were opened for the alert (show) and are closed after it.
     override suspend fun open() = true
 
@@ -81,7 +85,7 @@ class G2Alerts(
     // No speaker: answers are asked for as text (ShownBrain), so there is nothing to play.
     override suspend fun play(audio: ByteArray) = Unit
 
-    override suspend fun say(text: String) = link.show("$text\n\n$HINT")
+    override suspend fun say(text: String) = screen.show(text)
   }
 
   /** Jarvis's answers written for the display, as text. */
@@ -96,9 +100,7 @@ class G2Alerts(
 
   companion object {
     private const val TAG = "G2"
-    /** What the display holds, with room for [HINT]: it gives up at about 400 to 500 characters. */
-    const val CHARS = 320
-    const val HINT = "[tap: reply | swipe down: close]"
-    const val LINGER_MS = 60_000L
+    /** The longest answer asked for: two of the display's pages (G2Pages). */
+    const val CHARS = 2 * G2_PAGE_CHARS
   }
 }

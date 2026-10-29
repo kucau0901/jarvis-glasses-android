@@ -13,6 +13,7 @@ import app.jarvis.glasses.glasses.GlassesLink
 import app.jarvis.glasses.glasses.GlassesState
 import app.jarvis.glasses.glasses.cameOff
 import app.jarvis.glasses.glasses.folded
+import app.jarvis.glasses.glasses.worn
 import app.jarvis.glasses.jarvis.Address
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.AlertSocket
@@ -25,6 +26,10 @@ import app.jarvis.glasses.live.LiveVoice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** The app's one set of parts, shared by the screen and the service. */
@@ -44,6 +49,9 @@ class JarvisApp : Application() {
   lateinit var pairing: Pairing
   /** Even Realities G2 glasses, for alerts (Android 13 and later: the Bluetooth calls it makes). */
   var g2: G2Alerts? = null
+  var g2Link: G2Link? = null
+  /** Every pair of glasses the app knows, for Home: Meta's, and a G2. */
+  lateinit var glasses: StateFlow<List<GlassesState>>
 
   override fun onCreate() {
     super.onCreate()
@@ -59,7 +67,11 @@ class JarvisApp : Application() {
     admin = Admin(client)
     notifier = AlertNotifier(this, client, chat, scope)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) g2 = G2Alerts(scope, G2Link(this), client, chat, followUps = { prefs.followUps })
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      val g2l = G2Link(this).also { g2Link = it }
+      g2 = G2Alerts(scope, g2l, client, chat, followUps = { prefs.followUps })
+    }
+    glasses = g2Link?.let { g -> combine(link.glasses, g.glasses) { a, b -> a + b }.stateIn(scope, SharingStarted.Eagerly, link.glasses.value) } ?: link.glasses
     // In front of someone: the glasses say an alert, or a notification shows it. Jarvis waits for
     // this app's word only when it is, so without it every alert also went out by push.
     scope.launch { audio.connected.collect { refreshPresence() } }
@@ -120,8 +132,13 @@ class JarvisApp : Application() {
     val talk = alert.talk && prefs.speakAlerts
     if (live.state.value == LiveVoice.State.LIVE) return (talk && live.tell(alert)) || notifier.show(alert)
     // Not into glasses that aren't being worn: on a G2's display when one is with the phone, else
-    // a notification.
-    if (!talk || !audio.connected.value || folded(link.glasses.value) || live.state.value != LiveVoice.State.OFF || conversation.isBusy) {
+    // a notification. With a G2 there too, Ray-Ban glasses have it only when they say they are
+    // worn: left open on a desk they would say it to nobody and listen, while the G2 shows it with
+    // nothing heard. Without one, "off the face" alone isn't trusted (Meta's toolkit has said it of
+    // glasses being worn).
+    val g2Ready = prefs.g2 && g2?.canShow() == true
+    if (!talk || !audio.connected.value || folded(link.glasses.value) || (g2Ready && !worn(link.glasses.value)) ||
+        live.state.value != LiveVoice.State.OFF || conversation.isBusy) {
       return (prefs.g2 && g2?.show(alert) { notifier.show(it) } == true) || notifier.show(alert)
     }
     val started =

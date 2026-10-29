@@ -59,6 +59,9 @@ fun folded(known: List<GlassesState>): Boolean {
   return connected.none { it.worn == true } && connected.any { it.folded == true }
 }
 
+/** Whether a pair connected says it is on someone's face. */
+fun worn(known: List<GlassesState>): Boolean = known.any { it.link == GlassesState.Link.CONNECTED && it.worn == true }
+
 /**
  * Whether a pair still connected was just taken off: from [before] to [now] it folded, or went from
  * on a face to off it. Only a change seen on the same pair counts: "off the face" alone can't be

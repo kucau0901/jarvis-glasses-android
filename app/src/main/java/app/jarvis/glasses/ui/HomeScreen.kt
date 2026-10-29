@@ -130,7 +130,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
   var sheet by remember { mutableStateOf<String?>(null) }
   var can by remember { mutableStateOf<app.jarvis.glasses.hub.Can?>(null) }
   var loaded by remember { mutableStateOf(false) }
-  val known by app.link.glasses.collectAsStateWithLifecycle()
+  val known by app.glasses.collectAsStateWithLifecycle()
   val headset by app.audio.headset.collectAsStateWithLifecycle()
   val status by app.conversation.status.collectAsStateWithLifecycle()
   val liveState by app.live.state.collectAsStateWithLifecycle()

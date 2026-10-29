@@ -23,6 +23,7 @@ object G2Uuid {
 /** Service ids (the seventh byte of every packet). */
 object G2Service {
   const val GESTURE_CTRL: Byte = 0x0D
+  const val G2_SETTING: Byte = 0x09
   const val DEVICE_SETTINGS: Byte = 0x80.toByte()
   const val EVEN_HUB: Byte = 0xE0.toByte()
 }
@@ -168,6 +169,26 @@ object DevSettings {
   }
 
   fun heartbeat(magic: Int) = Proto().int(1, 14).int(2, magic).bytes(13, ByteArray(0)).build()
+}
+
+/** The glasses' own settings (service 0x09): only asked what they are, never changed. */
+object G2Setting {
+  /** Asks for the basic settings, which come with the battery and the firmware. */
+  fun ask(magic: Int) = Proto().int(1, 2).int(2, magic).bytes(4, Proto().int(1, 1).build()).build()
+}
+
+/** What the glasses say of themselves: 0–100, charging, the right arm's firmware. */
+data class G2Info(val battery: Int?, val charging: Boolean?, val firmware: String?)
+
+/** The battery and firmware in a settings message (service 0x09), sent asked or not; null for others. */
+fun g2Info(payload: ByteArray): G2Info? {
+  val top = parseProto(payload)
+  if (top[1] != 2 && top[1] != 3) return null
+  val f = parseProto(top[4] as? ByteArray ?: return null)
+  val battery = (f[12] as? Int)?.takeIf { it in 0..100 }
+  val firmware = (f[6] as? ByteArray)?.let { String(it, Charsets.UTF_8) }
+  if (battery == null && firmware == null) return null
+  return G2Info(battery, (f[13] as? Int)?.let { it != 0 }, firmware)
 }
 
 /** EvenHub messages (service 0xE0): the page an app draws, and its mic. */
