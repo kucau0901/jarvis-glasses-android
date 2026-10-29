@@ -103,6 +103,11 @@ class Conversation(
     job?.cancel()
   }
 
+  /** Waits for the conversation going, if any, to end. */
+  suspend fun join() {
+    job?.join()
+  }
+
   private suspend fun run(opening: Alert?) {
     opened = opening
     try {

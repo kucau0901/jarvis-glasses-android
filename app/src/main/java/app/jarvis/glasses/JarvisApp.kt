@@ -2,10 +2,13 @@ package app.jarvis.glasses
 
 import android.app.Application
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import app.jarvis.glasses.audio.GlassesAudio
 import app.jarvis.glasses.chat.ChatLog
 import app.jarvis.glasses.conversation.Conversation
+import app.jarvis.glasses.g2.G2Alerts
+import app.jarvis.glasses.g2.G2Link
 import app.jarvis.glasses.glasses.GlassesLink
 import app.jarvis.glasses.glasses.GlassesState
 import app.jarvis.glasses.glasses.cameOff
@@ -39,6 +42,8 @@ class JarvisApp : Application() {
   lateinit var admin: Admin
   lateinit var notifier: AlertNotifier
   lateinit var pairing: Pairing
+  /** Even Realities G2 glasses, for alerts (Android 13 and later: the Bluetooth calls it makes). */
+  var g2: G2Alerts? = null
 
   override fun onCreate() {
     super.onCreate()
@@ -54,6 +59,7 @@ class JarvisApp : Application() {
     admin = Admin(client)
     notifier = AlertNotifier(this, client, chat, scope)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) g2 = G2Alerts(scope, G2Link(this), client, chat, followUps = { prefs.followUps })
     // In front of someone: the glasses say an alert, or a notification shows it. Jarvis waits for
     // this app's word only when it is, so without it every alert also went out by push.
     scope.launch { audio.connected.collect { refreshPresence() } }
@@ -113,8 +119,11 @@ class JarvisApp : Application() {
     chat.arrived(alert)
     val talk = alert.talk && prefs.speakAlerts
     if (live.state.value == LiveVoice.State.LIVE) return (talk && live.tell(alert)) || notifier.show(alert)
-    // Not into glasses that aren't being worn: a notification instead.
-    if (!talk || !audio.connected.value || folded(link.glasses.value) || live.state.value != LiveVoice.State.OFF || conversation.isBusy) return notifier.show(alert)
+    // Not into glasses that aren't being worn: on a G2's display when one is with the phone, else
+    // a notification.
+    if (!talk || !audio.connected.value || folded(link.glasses.value) || live.state.value != LiveVoice.State.OFF || conversation.isBusy) {
+      return (prefs.g2 && g2?.show(alert) { notifier.show(it) } == true) || notifier.show(alert)
+    }
     val started =
         if (prefs.live) {
           live.start(chat.recent(), onFail = { conversation.start(opening = alert) }, onSaid = { chat.keep(listOf(it)) }, opening = alert)
@@ -167,6 +176,11 @@ class Prefs(context: Context) {
   var speakAlerts: Boolean
     get() = p.getBoolean("speakAlerts", true)
     set(v) = p.edit().putBoolean("speakAlerts", v).apply()
+
+  /** Alerts are shown on Even Realities G2 glasses when they are with the phone (G2Alerts). */
+  var g2: Boolean
+    get() = p.getBoolean("g2", true)
+    set(v) = p.edit().putBoolean("g2", v).apply()
 
   /** This phone's own id among the person's screens, made once: the `origin` of its questions. */
   val origin: String

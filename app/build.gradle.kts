@@ -32,6 +32,16 @@ android {
     resValue("string", "mwdat_client_token", localProperties.getProperty("mwdat_client_token", "0"))
   }
 
+  // The LC3 decoder for the G2's microphone (src/main/cpp). Gradle installs this NDK and CMake
+  // into the Android SDK on the first build.
+  ndkVersion = "28.2.13676358"
+  externalNativeBuild {
+    cmake {
+      path = file("src/main/cpp/CMakeLists.txt")
+      version = "3.22.1"
+    }
+  }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17

@@ -57,6 +57,7 @@ fun SettingsScreen(app: JarvisApp, hooks: Hooks) {
   var showAccess by remember { mutableStateOf(app.prefs.accessId.isNotEmpty()) }
   var followUps by remember { mutableStateOf(app.prefs.followUps) }
   var speakAlerts by remember { mutableStateOf(app.prefs.speakAlerts) }
+  var g2 by remember { mutableStateOf(app.prefs.g2) }
   var live by remember { mutableStateOf(app.prefs.live) }
   var quiet by remember { mutableStateOf(app.prefs.liveQuietSeconds) }
 
@@ -228,6 +229,14 @@ fun SettingsScreen(app: JarvisApp, hooks: Hooks) {
             style = MaterialTheme.typography.bodySmall,
             color = Even.colors.dim,
         )
+        if (app.g2 != null) {
+          Toggle("Show alerts on Even G2 glasses", g2) { g2 = it; app.prefs.g2 = it }
+          Text(
+              "When the G2 is with this phone and Ray-Ban glasses aren't in use. Tap or swipe up to reply, and the microphone opens; swipe down to close.",
+              style = MaterialTheme.typography.bodySmall,
+              color = Even.colors.dim,
+          )
+        }
       }
     }
 

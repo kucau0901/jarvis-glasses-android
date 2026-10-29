@@ -66,10 +66,22 @@ class JarvisClient(
       context: List<Turn>,
       photoJpeg: ByteArray?,
       onEvent: suspend (VoiceEvent) -> Unit,
+  ): VoiceEvent.Answer = ask(text, context, photoJpeg, null, onEvent)
+
+  /**
+   * [chars] set: the answer is for a small display rather than spoken, written to fit that many
+   * characters, and comes as text only.
+   */
+  suspend fun ask(
+      text: String,
+      context: List<Turn>,
+      photoJpeg: ByteArray?,
+      chars: Int?,
+      onEvent: suspend (VoiceEvent) -> Unit,
   ): VoiceEvent.Answer =
       withContext(Dispatchers.IO) {
         var answer: VoiceEvent.Answer? = null
-        stream("/api/v1/voice", askBody(text, context, photoJpeg, origin())) { o ->
+        stream("/api/v1/voice", askBody(text, context, photoJpeg, origin(), chars)) { o ->
           val e = VoiceEvent.from(o) ?: return@stream
           if (e is VoiceEvent.Answer) answer = e
           onEvent(e)
@@ -222,11 +234,16 @@ class JarvisClient(
             .build()
 
     /** The JSON body of a text question: `{text, context, reply, format, images?}`. */
-    fun askBody(text: String, context: List<Turn>, photoJpeg: ByteArray?, origin: JsonObject? = null): JsonObject = buildJsonObject {
+    fun askBody(text: String, context: List<Turn>, photoJpeg: ByteArray?, origin: JsonObject? = null, chars: Int? = null): JsonObject = buildJsonObject {
       put("text", text)
       put("context", turnsJson(context))
-      put("reply", "audio")
-      put("format", "mp3")
+      if (chars != null) {
+        put("reply", "text")
+        put("chars", chars)
+      } else {
+        put("reply", "audio")
+        put("format", "mp3")
+      }
       if (origin != null) put("origin", origin)
       if (photoJpeg != null) {
         put(

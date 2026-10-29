@@ -1,16 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The G2 spike: debug builds only. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation"
-        tools:targetApi="s" />
-
+<!-- Debug builds only: a test alert on G2 glasses (G2AlertReceiver). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <receiver
-            android:name=".g2.G2SpikeReceiver"
+            android:name=".g2.G2AlertReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP" />
     </application>

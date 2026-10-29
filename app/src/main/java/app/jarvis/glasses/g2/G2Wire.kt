@@ -5,7 +5,7 @@ import java.util.TimeZone
 import java.util.UUID
 
 /*
- * The Even Realities G2's Bluetooth protocol, as far as a spike needs it: framing, the handful of
+ * The Even Realities G2's Bluetooth protocol, as far as Jarvis needs it: framing, the handful of
  * protobuf messages to sign in, keep alive, draw a text page, read touches and stream the mic.
  *
  * Ported from MentraOS's G2 driver (Mentra-Community/MentraOS,
@@ -211,33 +211,40 @@ object EvenHub {
   fun mic(on: Boolean, magic: Int) = message(15, 18, Proto().int(1, if (on) 1 else 0).build(), magic)
 }
 
-/** A touch on the glasses, from an EvenHub "event to app" message (cmd 2); null for anything else. */
-fun g2Touch(payload: ByteArray): String? {
+/** What the wearer did on the touchpad or the R1 ring, or the glasses closing the page. */
+enum class G2Touch { TAP, DOUBLE_TAP, UP, DOWN, CLOSED }
+
+/** The mic sends 200 bytes of LC3 at a time, five 10 ms frames, then a 5-byte trailer. */
+const val G2_MIC_BYTES = 200
+const val G2_LC3_FRAME_BYTES = 40
+
+/**
+ * A touch from an EvenHub "event to app" message (cmd 2), the touchpad's and the ring's alike;
+ * null for anything else, the ring's own events (types 9 and 10) and the page coming to the front
+ * included.
+ */
+fun g2Touch(payload: ByteArray): G2Touch? {
   val top = parseProto(payload)
   if (top[1] != 2) return null
   val event = parseProto(top[13] as? ByteArray ?: return null)
-  val type: Int?
-  val source: Int?
+  // A system event (field 3) has its type in field 1, one on a text container (field 2) in field 3.
+  // A click leaves the type out, as protobuf does a default.
   val sys = event[3] as? ByteArray
-  if (sys != null) {
-    val f = parseProto(sys)
-    type = f[1] as? Int ?: 0 // a click leaves the default out
-    source = f[2] as? Int
-  } else {
-    type = parseProto(event[2] as? ByteArray ?: return "other").let { it[3] as? Int ?: 0 }
-    source = null
-  }
-  val name =
-      when (type) {
-        0 -> "tap"
-        1 -> "swipe up"
-        2 -> "swipe down"
-        3 -> "double tap"
-        4 -> "foreground enter"
-        5 -> "foreground exit"
-        6 -> "abnormal exit"
-        7 -> "system exit"
-        else -> "type $type"
+  val text = event[2] as? ByteArray
+  val type =
+      when {
+        sys != null -> parseProto(sys)[1] as? Int ?: 0
+        text != null -> parseProto(text)[3] as? Int ?: 0
+        else -> return null
       }
-  return if (source == 2) "$name (ring)" else name
+  return when (type) {
+    0 -> G2Touch.TAP
+    1 -> G2Touch.UP
+    2 -> G2Touch.DOWN
+    3 -> G2Touch.DOUBLE_TAP
+    // Abnormal and system exit: the page is gone. Foreground exit (5) only puts it behind
+    // something for a moment.
+    6, 7 -> G2Touch.CLOSED
+    else -> null
+  }
 }
