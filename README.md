@@ -116,6 +116,9 @@ on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by ste
   display. Something longer comes in pages (1/3, 2/3…): **swipe down** for the next, **up** for the
   one before, and down on the last to close. Tap again to follow up; untouched, it goes after a
   minute. Home shows the G2, and its battery from the last time an alert was up.
+  **"Hey Even, open Jarvis"** shows Jarvis's own menu on the G2: swipe to choose, tap to open
+  *Talk to Jarvis* (the microphone opens at once), *Latest alerts* (newest first, in pages) or
+  *Close*.
   The microphone never opens by itself: the G2 can't say whether it is being worn. The Even app
   stays connected all along, and has the glasses back as soon as the alert closes, so "Hey Even"
   and its own notifications go on working. **Settings → Voice → Show alerts on Even G2 glasses**
@@ -169,7 +172,7 @@ something.
 | A spoken question | `POST /api/v1/voice` twice: hear it, then ask the words with the conversation so far and a photo when one was asked for; the answer streams back sentence by sentence (`jarvis/JarvisClient.kt`). |
 | The conversation | `conversation/Conversation.kt`: listen → hear → stop? photo? → ask → play → listen again. |
 | Alerts | WebSocket `/api/v1/events` (`jarvis/AlertSocket.kt`): in Chat at once; when the alert says `talk` and the glasses are connected, said in them (into an open live session, a live session opened with it as `opening`, or turn by turn), else a notification with Reply (`alerts/AlertNotifier.kt`). Either way acknowledged as seen, so Jarvis sends it nowhere else; with this app's notifications switched off in Android, Jarvis goes on to its other ways. |
-| Even Realities G2 | Bluetooth, the protocol MentraOS's G2 driver recovered (`g2/G2Wire.kt`), held only while an alert is up (`g2/G2Link.kt`); its LC3 microphone decoded by Google's liblc3 v1.1.3 (`src/main/cpp`, `audio/Lc3Decoder.kt`); the alert and the conversation about it (`g2/G2Alerts.kt`, `g2/G2Ears.kt`), asking `/api/v1/voice` for an answer that fits the display (`chars`). |
+| Even Realities G2 | Bluetooth, the protocol MentraOS's G2 driver recovered (`g2/G2Wire.kt`), held only while an alert is up (`g2/G2Link.kt`); its LC3 microphone decoded by Google's liblc3 v1.1.3 (`src/main/cpp`, `audio/Lc3Decoder.kt`); the alert and the conversation about it (`g2/G2Alerts.kt`, `g2/G2Ears.kt`), and the menu "open Jarvis" shows (`g2/G2Menu.kt`, told by Jarvis on the alert socket), asking `/api/v1/voice` for an answer that fits the display (`chars`). |
 | Registration, camera, "Hey Meta" | Meta's Wearables Device Access Toolkit 1.0.1: `glasses/GlassesLink.kt`. |
 | Live voice | WebRTC (`live/LiveVoice.kt`) to Jarvis's `/api/session`; tool calls relayed to `/api/v1/stream` as the web app does (`live/LiveRelay.kt`). |
 | Signing in | Jarvis's pairing code (`jarvis/Pairing.kt`); the person's session reaches `/api/hub/…` (`hub/Hub.kt`) and, for an admin, the settings API (`hub/Admin.kt`). |
@@ -192,7 +195,9 @@ Not covered by tests, to try with the glasses: the headset routing, "Hey Meta", 
 voice's WebRTC, an alert arriving with the phone locked, and the G2's link, microphone and LC3
 decoder. A debug build shows a test alert on a G2 from the computer:
 `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --es text "'The gate is open.'"`;
-`--ei hold 5` instead holds the G2 for five minutes, to see whether the link stays up.
+`--ei hold 5` instead holds the G2 for five minutes, to see whether the link stays up;
+`--ez menu true` opens the menu as "open Jarvis" would; `--ei listen 5` logs, for five minutes,
+what the G2 sends while the Even app has it, without signing in.
 
 ## Limits
 
@@ -209,7 +214,9 @@ decoder. A debug build shows a test alert on a G2 from the computer:
 - The G2's protocol is not published by Even; it was recovered from Even's app (by MentraOS), and
   tried on G2 firmware 2.4.0.24. A firmware update may change it. A double tap is left to the
   glasses, which use it for their menu. Asking Jarvis something yourself on a G2 is still "Hey
-  Even", through Even AI ([Jarvis's G2 guide](https://github.com/kucau0901/jarvis-voice-agent/blob/main/docs/even-g2.md)).
+  Even", through Even AI ([Jarvis's G2 guide](https://github.com/kucau0901/jarvis-voice-agent/blob/main/docs/even-g2.md)),
+  and so is opening the menu: with no Jarvis page up, only a single tap on the R1 ring reaches
+  the phone, and the glasses use that for Even's dashboard.
 - Opened from inside a Meta AI call, Jarvis gets no sound from the glasses (the call holds them) and
   uses the phone's microphone and speaker. Say "Hey Meta, open Jarvis" outside a call.
 - arm64 phones only (the WebRTC libraries are large).

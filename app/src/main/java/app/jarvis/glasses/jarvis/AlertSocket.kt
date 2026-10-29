@@ -8,7 +8,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import okhttp3.Response
@@ -22,6 +24,9 @@ import okhttp3.WebSocketListener
  * someone will get it (said in the glasses, or shown as a notification), and only then is it
  * acknowledged.
  *
+ * Jarvis asking for its own screen on the person's display glasses (`{"type":"glasses.open"}`, "open
+ * Jarvis") is [onGlassesOpen].
+ *
  * Reconnects with backoff while [start]ed; close code 4001 means the token was revoked, which stops
  * it for good.
  */
@@ -29,6 +34,7 @@ class AlertSocket(
     private val client: JarvisClient,
     private val scope: CoroutineScope,
     private val onAlert: (Alert) -> Boolean,
+    private val onGlassesOpen: () -> Unit,
 ) {
   enum class State { OFF, CONNECTING, CONNECTED, REVOKED }
 
@@ -61,6 +67,7 @@ class AlertSocket(
                       override fun onMessage(webSocket: WebSocket, text: String) {
                         if (text == "pong") return
                         val o = runCatching { SseParser.json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
+                        if ((o["type"] as? JsonPrimitive)?.contentOrNull == "glasses.open") return onGlassesOpen()
                         val alert = Alert.fromMessage(o) ?: return
                         if (onAlert(alert)) webSocket.send(ack(alert.id))
                       }

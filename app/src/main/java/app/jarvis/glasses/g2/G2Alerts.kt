@@ -7,19 +7,22 @@ import app.jarvis.glasses.conversation.Brain
 import app.jarvis.glasses.conversation.Conversation
 import app.jarvis.glasses.conversation.Memory
 import app.jarvis.glasses.conversation.Mouth
+import app.jarvis.glasses.hub.Said
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.JarvisClient
 import app.jarvis.glasses.jarvis.Turn
 import app.jarvis.glasses.jarvis.VoiceEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Jarvis speaking first on Even Realities G2 glasses: an alert shown on the display, and a
- * conversation about it when the wearer taps (or swipes up) to reply. The answers are shown, not
- * said; the glasses have no speaker. The glasses are held only for this ([G2Link.open]) and given
- * back to the Even app after.
+ * Jarvis on Even Realities G2 glasses: an alert shown on the display, and a conversation about it
+ * when the wearer taps to reply; or Jarvis's own screen ([G2Menu]) when they ask for it ("open
+ * Jarvis"). The answers are shown, not said; the glasses have no speaker. The glasses are held only
+ * for this ([G2Link.open]) and given back to the Even app after.
  *
  * The conversation is Chat's ([memory]), as it is in Ray-Ban glasses, so "yes, do that" is
  * understood, and what is said here is in Chat after.
@@ -31,6 +34,8 @@ class G2Alerts(
     client: JarvisClient,
     memory: Memory,
     followUps: () -> Boolean,
+    /** Chat's conversation, read again: where the latest alerts are. */
+    private val said: suspend () -> List<Said>,
 ) {
   private val screen = G2Screen(link::show)
   private val ears = G2Ears(link, screen)
@@ -54,22 +59,82 @@ class G2Alerts(
               unseen(alert)
               return@launch
             }
-            conversation.start(opening = alert)
-            conversation.join()
-            // Ended by Jarvis's side (no follow-ups, a closing word, a failure): what it said stays
-            // up, a tap starting another turn, until the wearer puts it away or leaves it.
-            while (ears.ended == null) {
-              conversation.note.value.takeIf { it.isNotEmpty() }?.let { Log.i(TAG, "conversation: $it") }
-              if (ears.awaitReply() != true) break
-              ears.arm()
-              conversation.start()
-              conversation.join()
+            converse(alert)
+          } finally {
+            link.close()
+          }
+        }
+    return true
+  }
+
+  /** Jarvis's own screen on the glasses ([G2Menu]), unless they can't be reached ([canShow]). */
+  fun openMenu(): Boolean {
+    if (!canShow()) return false
+    job =
+        scope.launch {
+          try {
+            if (!link.open()) {
+              Log.w(TAG, "the G2 couldn't be signed in to; its menu isn't shown")
+              return@launch
+            }
+            val menu = G2Menu()
+            while (true) {
+              when (choose(menu)) {
+                null, G2Choice.CLOSE -> break
+                G2Choice.TALK -> if (!converse(null)) break
+                G2Choice.ALERTS -> {
+                  screen.show(g2AlertList(runCatching { said() }.getOrDefault(emptyList())))
+                  // A tap replies about them; put away, back to the menu.
+                  when (ears.awaitReply()) {
+                    null -> break
+                    true -> if (!converse(null)) break
+                    false -> Unit
+                  }
+                }
+              }
             }
           } finally {
             link.close()
           }
         }
     return true
+  }
+
+  /** The menu until something is chosen with a tap; null when it is closed or left alone. */
+  private suspend fun choose(menu: G2Menu): G2Choice? {
+    while (true) {
+      screen.plain(menu.text())
+      when (withTimeoutOrNull(WAIT_MS) { link.touches.first { it != G2Touch.DOUBLE_TAP } }) {
+        null, G2Touch.CLOSED -> return null
+        G2Touch.UP -> menu.up()
+        G2Touch.DOWN -> menu.down()
+        G2Touch.TAP -> return menu.chosen
+        G2Touch.DOUBLE_TAP -> Unit
+      }
+    }
+  }
+
+  /**
+   * A conversation on the glasses: Jarvis saying [opening] first, or the microphone opening at once
+   * (the wearer chose to talk). Ended by Jarvis's side (no follow-ups, a closing word, a failure),
+   * what it said stays up, a tap starting another turn. False when it was left unanswered.
+   */
+  private suspend fun converse(opening: Alert?): Boolean {
+    if (opening == null) ears.arm()
+    conversation.start(opening = opening)
+    conversation.join()
+    while (ears.ended == null) {
+      conversation.note.value.takeIf { it.isNotEmpty() }?.let { Log.i(TAG, "conversation: $it") }
+      when (ears.awaitReply()) {
+        true -> Unit
+        false -> return true
+        null -> return false
+      }
+      ears.arm()
+      conversation.start()
+      conversation.join()
+    }
+    return ears.ended != G2Ears.End.UNANSWERED
   }
 
   /** Text on the glasses for everything Jarvis says, a page at a time. */
@@ -100,6 +165,8 @@ class G2Alerts(
 
   companion object {
     private const val TAG = "G2"
+    /** How long the menu waits for the wearer, as an alert does (G2Ears). */
+    const val WAIT_MS = 60_000L
     /** The longest answer asked for: two of the display's pages (G2Pages). */
     const val CHARS = 2 * G2_PAGE_CHARS
   }

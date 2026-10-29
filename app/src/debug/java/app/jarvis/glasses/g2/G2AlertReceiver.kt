@@ -16,12 +16,21 @@ import kotlinx.coroutines.launch
  * waiting for a real one (the reply is a real question to Jarvis):
  * `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --es text "'The gate is open.'"`
  *
+ * Jarvis's own screen on them, as "open Jarvis" said to Even AI opens it:
+ * `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --ez menu true`
+ *
+ * What the glasses send while the Even app has them, heard without signing in (`--ei listen`
+ * minutes; G2Listen): `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --ei listen 5`
+ *
  * The glasses held for a while, to see whether the link stays up (`--ei hold` minutes):
  * `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --ei hold 5`
  */
 class G2AlertReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     val app = context.jarvis
+    if (intent.getBooleanExtra("menu", false)) return app.openG2()
+    val listen = intent.getIntExtra("listen", 0)
+    if (listen > 0) return G2Listen(context.applicationContext).start(listen)
     val minutes = intent.getIntExtra("hold", 0)
     if (minutes > 0) {
       val link = app.g2Link ?: return

@@ -63,13 +63,13 @@ class JarvisApp : Application() {
     chat = ChatLog(scope, hub::conversation, hub::keep, hub::clearConversation, person = { prefs.token.startsWith("jss1_") })
     conversation = Conversation(scope, audio, audio, link, client, chat, followUps = { prefs.followUps })
     live = LiveVoice(this, client, audio, scope, quietMs = { prefs.liveQuietSeconds * 1000L })
-    alerts = AlertSocket(client, scope, ::onAlert)
+    alerts = AlertSocket(client, scope, ::onAlert, ::openG2)
     admin = Admin(client)
     notifier = AlertNotifier(this, client, chat, scope)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       val g2l = G2Link(this).also { g2Link = it }
-      g2 = G2Alerts(scope, g2l, client, chat, followUps = { prefs.followUps })
+      g2 = G2Alerts(scope, g2l, client, chat, followUps = { prefs.followUps }, said = { runCatching { chat.refresh() }; chat.said.value })
     }
     glasses = g2Link?.let { g -> combine(link.glasses, g.glasses) { a, b -> a + b }.stateIn(scope, SharingStarted.Eagerly, link.glasses.value) } ?: link.glasses
     // In front of someone: the glasses say an alert, or a notification shows it. Jarvis waits for
@@ -112,6 +112,12 @@ class JarvisApp : Application() {
         onFail = { conversation.start() },
         onSaid = { chat.keep(listOf(it)) },
     )
+  }
+
+  /** "Open Jarvis", asked of Jarvis on G2 glasses (Even AI): its menu on them, when they are with the phone. */
+  fun openG2() {
+    val shown = prefs.g2 && g2?.openMenu() == true
+    Log.i(TAG, "open on the G2: ${if (shown) "shown" else "not shown: no G2 with the phone, one busy, or switched off"}")
   }
 
   /** Tells Jarvis whether this app can put an alert in front of someone right now. */
