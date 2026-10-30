@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -28,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -35,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.jarvis.glasses.JarvisApp
@@ -42,6 +46,7 @@ import app.jarvis.glasses.hub.AlertsOverview
 import app.jarvis.glasses.hub.PlanView
 import app.jarvis.glasses.hub.Probe
 import app.jarvis.glasses.hub.RouterState
+import app.jarvis.glasses.hub.Skill
 import app.jarvis.glasses.hub.Usage
 import app.jarvis.glasses.jarvis.Loopback
 import java.text.SimpleDateFormat
@@ -486,6 +491,116 @@ fun McpPage(app: JarvisApp, back: () -> Unit) {
         Note(say, bad)
       }
     }
+  }
+}
+
+/* ---------- Skills ------------------------------------------------------------ */
+
+/** "on" every skill has its key, "need" one waits for it, "off" none, as the web app marks the section. */
+fun skillsState(all: List<Skill>?) = when {
+  all == null -> ""
+  all.isEmpty() -> "off"
+  all.all { it.hasKey } -> "on"
+  else -> "need"
+}
+
+@Composable
+fun SkillsPage(app: JarvisApp, back: () -> Unit) {
+  val scope = rememberCoroutineScope()
+  val c = Even.colors
+  var skills by remember { mutableStateOf<List<Skill>?>(null) }
+  val typed = remember { mutableStateMapOf<String, String>() }
+  // The skill whose Remove was pressed once, waiting for the second press.
+  var sure by remember { mutableStateOf<String?>(null) }
+  var say by remember { mutableStateOf("") }
+  var bad by remember { mutableStateOf(false) }
+
+  fun note(t: String, wrong: Boolean = false) {
+    say = t
+    bad = wrong
+  }
+
+  suspend fun load() {
+    runCatching { app.admin.skills() }.onSuccess { skills = it.skills }.onFailure { note("Could not read the skills: ${it.message}", true) }
+  }
+
+  LaunchedEffect(Unit) { load() }
+
+  SubPage("Skills", back) {
+    item {
+      Section("Skills") {
+        Note(
+            "Outside services Jarvis sends requests to: a bot, an automation, your own code. Add one in chat, with its address: " +
+                "\"add a skill: Nova, my Grok bot, for the house and the car, at https://…\". Its key goes here, never in chat, and is " +
+                "never shown again; a skill is used once it has one. One that answers later sends its answer to POST /api/v1/notify, " +
+                "with an alerts-only token from Devices. MCP servers added in chat are under MCP servers.",
+        )
+      }
+    }
+    val all = skills
+    if (all == null) item { Note(say.ifEmpty { "Loading…" }, bad) }
+    else if (all.isEmpty()) item { Note("None yet.") }
+    items(all.orEmpty(), key = { it.id }) { s ->
+      Tile(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(s.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text(if (s.hasKey) "key set" else "needs its key", style = MaterialTheme.typography.labelSmall, color = if (s.hasKey) c.on else c.danger)
+          }
+          if (s.`when`.isNotEmpty()) Text(s.`when`, style = MaterialTheme.typography.bodyMedium)
+          val facts = listOf(s.url, if (s.later) "answers later, as a message" else "answers at once") + listOfNotNull(s.keyHeader?.let { "key also in $it" }) + s.fields.map { (k, v) -> "$k: $v" }
+          Note(facts.joinToString(" · "))
+          OutlinedTextField(
+              typed[s.id].orEmpty(),
+              { typed[s.id] = it },
+              placeholder = { Text(if (s.hasKey) "A new key, to replace it" else "Its key") },
+              singleLine = true,
+              visualTransformation = PasswordVisualTransformation(),
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+              modifier = Modifier.fillMaxWidth(),
+          )
+          Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = {
+                  note("Saving…")
+                  scope.launch {
+                    runCatching { app.admin.skillKey(s.id, typed[s.id].orEmpty().trim()) }
+                        .onSuccess {
+                          typed.remove(s.id)
+                          note("${s.name}'s key is saved.")
+                          load()
+                        }
+                        .onFailure { note(it.message ?: "Not saved", true) }
+                  }
+                },
+            ) {
+              Text("Save key")
+            }
+            OutlinedButton(
+                onClick = {
+                  if (sure != s.id) {
+                    sure = s.id
+                    return@OutlinedButton
+                  }
+                  sure = null
+                  scope.launch {
+                    runCatching { app.admin.removeSkill(s.id) }
+                        .onSuccess {
+                          typed.remove(s.id)
+                          note("${s.name} is removed.")
+                          load()
+                        }
+                        .onFailure { note(it.message ?: "Not removed", true) }
+                  }
+                },
+            ) {
+              Text(if (sure == s.id) "Remove it?" else "Remove")
+            }
+          }
+        }
+      }
+    }
+    if (all != null) item { Note(say, bad) }
   }
 }
 

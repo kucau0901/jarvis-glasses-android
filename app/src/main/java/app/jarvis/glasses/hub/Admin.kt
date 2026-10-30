@@ -1,6 +1,7 @@
 package app.jarvis.glasses.hub
 
 import app.jarvis.glasses.jarvis.JarvisClient
+import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -91,6 +92,26 @@ data class McpList(val servers: List<JsonObject> = emptyList(), val source: Stri
 
 @Serializable
 data class McpTest(val ok: Boolean = false, val transport: String? = null, val ms: Long? = null, val toolCount: Int? = null, val tools: List<String> = emptyList(), val error: String? = null)
+
+// Skills (routes/skills.ts): outside services Jarvis was asked, in chat, to send requests to. Never carries a key.
+
+@Serializable
+data class Skill(
+    val id: String,
+    val name: String = "",
+    val url: String = "",
+    val `when`: String = "",
+    val later: Boolean = false,
+    val keyHeader: String? = null,
+    val fields: Map<String, String> = emptyMap(),
+    val hasKey: Boolean = false,
+    val createdAt: Long = 0,
+    val updatedAt: Long = 0,
+)
+
+@Serializable data class SkillList(val skills: List<Skill> = emptyList())
+
+@Serializable data class SkillSaved(val skill: Skill)
 
 // ChatGPT plan (routes/chatgpt.ts)
 
@@ -206,6 +227,16 @@ class Admin(private val client: JarvisClient) {
   suspend fun saveMcp(servers: List<JsonObject>): McpSaved = decode(call("PUT", "/api/mcp", buildJsonObject { put("servers", JsonArray(servers)) }).second)
 
   suspend fun testMcp(server: JsonObject): McpTest = decode(call("POST", "/api/mcp/test", server, okAlso = 400).second)
+
+  // Skills: added and changed in chat; only the key is set here, and Jarvis says why it refuses one.
+
+  suspend fun skills(): SkillList = decode(call("GET", "/api/skills", null).second)
+
+  suspend fun skillKey(id: String, key: String): Skill = decode<SkillSaved>(call("PUT", "/api/skills", buildJsonObject { put("id", id); put("key", key) }).second).skill
+
+  suspend fun removeSkill(id: String) {
+    call("DELETE", "/api/skills?id=${URLEncoder.encode(id, "UTF-8")}", null)
+  }
 
   // ChatGPT plan
 

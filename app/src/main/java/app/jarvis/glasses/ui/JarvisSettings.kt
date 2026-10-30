@@ -47,6 +47,7 @@ import app.jarvis.glasses.JarvisApp
 import app.jarvis.glasses.hub.GroupView
 import app.jarvis.glasses.hub.SettingView
 import app.jarvis.glasses.hub.SettingsReply
+import app.jarvis.glasses.hub.Skill
 import kotlinx.coroutines.launch
 
 /**
@@ -62,6 +63,9 @@ fun JarvisSettings(app: JarvisApp, back: () -> Unit) {
   // Kept above the pages, so coming back from one finds the list where it was.
   val index = remember { LazyListState() }
   LaunchedEffect(Unit) { runCatching { app.admin.settings() }.onSuccess { data = it }.onFailure { problem = it.message ?: "Couldn't read Jarvis's settings" } }
+  // Read again on coming back from the Skills page, so its mark follows a key just saved.
+  var skills by remember { mutableStateOf<List<Skill>?>(null) }
+  LaunchedEffect(open) { if (open == null) runCatching { app.admin.skills() }.onSuccess { skills = it.skills } }
 
   val d = data
   val group = d?.groups?.find { it.id == open }
@@ -72,6 +76,7 @@ fun JarvisSettings(app: JarvisApp, back: () -> Unit) {
     open == "router" -> return RouterPage(app, shut)
     open == "usage" -> return UsagePage(app, shut)
     open == "mcp" -> return McpPage(app, shut)
+    open == "skills" -> return SkillsPage(app, shut)
     open == "export" -> return ExportPage(app, shut)
   }
   val c = Even.colors
@@ -96,6 +101,7 @@ fun JarvisSettings(app: JarvisApp, back: () -> Unit) {
       items(d.groups, key = { it.id }) { g -> SectionRow(g.title, stateOf(g, d)) { open = g.id } }
       item { SectionRow("Router model", "") { open = "router" } }
       item { SectionRow("MCP servers", "") { open = "mcp" } }
+      item { SectionRow("Skills", skillsState(skills)) { open = "skills" } }
     }
     // Usage is each person's own, so it shows even to someone who isn't an admin.
     if (d != null || problem.isNotEmpty()) item { SectionRow("Usage and cost", "") { open = "usage" } }
