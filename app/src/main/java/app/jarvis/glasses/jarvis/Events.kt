@@ -1,5 +1,6 @@
 package app.jarvis.glasses.jarvis
 
+import app.jarvis.glasses.hub.SkillFrom
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -58,10 +59,16 @@ data class Alert(
     val source: String = "",
     /** A family message's conversation: "family" for the room, "dm:…" for a direct one. */
     val convo: String? = null,
+    /** The bot that said it, an outside service added as a skill: its answer, or a message of its own. An older Jarvis sends none. */
+    val skill: SkillFrom? = null,
 ) {
   /** How it reads, and is said: "Title: text", as the web app has it; just the text under "Jarvis". */
   val said: String
     get() = if (title == "Jarvis") text else "$title: $text"
+
+  /** How the model is told it, as Chat's transcript has it: a bot's words quoted as its own ([SkillFrom.told]), else as [said]. */
+  val told: String
+    get() = skill?.told(text) ?: said
 
   companion object {
     /** The `alert` field of a `{"type":"alert"}` message, or null for anything else. */
@@ -72,7 +79,8 @@ data class Alert(
       val text = a.str("text")?.trim().orEmpty()
       if (text.isEmpty()) return null
       val speak = a.bool("speak") ?: true
-      return Alert(id, a.str("title") ?: "Jarvis", text, speak, a.bool("urgent") ?: false, a.bool("talk") ?: speak, a.str("source").orEmpty(), a.str("convo"))
+      val skill = (a["skill"] as? JsonObject)?.let { s -> s.str("name")?.let { SkillFrom(s.str("id").orEmpty(), it, s.str("about")) } }
+      return Alert(id, a.str("title") ?: "Jarvis", text, speak, a.bool("urgent") ?: false, a.bool("talk") ?: speak, a.str("source").orEmpty(), a.str("convo"), skill)
     }
   }
 }

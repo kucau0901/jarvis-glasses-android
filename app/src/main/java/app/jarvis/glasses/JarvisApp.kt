@@ -63,7 +63,8 @@ class JarvisApp : Application() {
     chat = ChatLog(scope, hub::conversation, hub::keep, hub::clearConversation, person = { prefs.token.startsWith("jss1_") })
     conversation = Conversation(scope, audio, audio, link, client, chat, followUps = { prefs.followUps })
     live = LiveVoice(this, client, audio, scope, quietMs = { prefs.liveQuietSeconds * 1000L })
-    alerts = AlertSocket(client, scope, ::onAlert, ::openG2)
+    // A bot's exchange with Jarvis, kept in the person's conversation: Chat reads it again, signed in as them.
+    alerts = AlertSocket(client, scope, ::onAlert, ::openG2, onSaid = { scope.launch { runCatching { chat.refresh() } } })
     admin = Admin(client)
     notifier = AlertNotifier(this, client, chat, scope)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)

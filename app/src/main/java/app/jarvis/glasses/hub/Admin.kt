@@ -107,11 +107,20 @@ data class Skill(
     val hasKey: Boolean = false,
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
+    /** Its bot's own address, to ask Jarvis and message whoever made it. */
+    val address: SkillAddress? = null,
 )
 
-@Serializable data class SkillList(val skills: List<Skill> = emptyList())
+/** A bot's own address, never its token: a hint of it ("jbt1_ab12…wxyz"), who made it, what it may reach, and when. */
+@Serializable data class SkillAddress(val hint: String = "", val person: String = "", val reach: List<String> = emptyList(), val at: Long = 0)
+
+/** The skills, and what a bot's address may be ticked to reach. */
+@Serializable data class SkillList(val skills: List<Skill> = emptyList(), val reach: List<String> = emptyList())
 
 @Serializable data class SkillSaved(val skill: Skill)
+
+/** A new address, shown this once: the base URL with [token] as its Bearer key, or [url] alone. Jarvis keeps only its digest. */
+@Serializable data class MadeAddress(val skill: Skill, val token: String, val base: String, val url: String)
 
 // ChatGPT plan (routes/chatgpt.ts)
 
@@ -228,7 +237,7 @@ class Admin(private val client: JarvisClient) {
 
   suspend fun testMcp(server: JsonObject): McpTest = decode(call("POST", "/api/mcp/test", server, okAlso = 400).second)
 
-  // Skills: added and changed in chat; only the key is set here, and Jarvis says why it refuses one.
+  // Skills: added and changed in chat; only the key and its bot's address are set here, and Jarvis says why it refuses one.
 
   suspend fun skills(): SkillList = decode(call("GET", "/api/skills", null).second)
 
@@ -237,6 +246,18 @@ class Admin(private val client: JarvisClient) {
   suspend fun removeSkill(id: String) {
     call("DELETE", "/api/skills?id=${URLEncoder.encode(id, "UTF-8")}", null)
   }
+
+  /** An address of its own for its bot, reaching [reach], as whoever makes it; one made before stops. */
+  suspend fun skillAddress(id: String, reach: List<String>): MadeAddress =
+      decode(call("PATCH", "/api/skills", buildJsonObject { put("id", id); put("address", true); put("reach", reachOf(reach)) }).second)
+
+  /** Its bot's address stopped. */
+  suspend fun stopSkillAddress(id: String): Skill = decode<SkillSaved>(call("PATCH", "/api/skills", buildJsonObject { put("id", id); put("address", false) }).second).skill
+
+  /** What its bot's address may reach, ticked again. */
+  suspend fun skillReach(id: String, reach: List<String>): Skill = decode<SkillSaved>(call("PATCH", "/api/skills", buildJsonObject { put("id", id); put("reach", reachOf(reach)) }).second).skill
+
+  private fun reachOf(reach: List<String>) = JsonArray(reach.map(::JsonPrimitive))
 
   // ChatGPT plan
 

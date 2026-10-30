@@ -1,6 +1,7 @@
 package app.jarvis.glasses.hub
 
 import app.jarvis.glasses.jarvis.JarvisClient
+import app.jarvis.glasses.ui.skillsState
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -111,6 +112,75 @@ class AdminTest {
       fail("a refused key should throw")
     } catch (e: JarvisClient.JarvisException) {
       assertEquals("a key is 8 to 512 characters, without spaces", e.message)
+    }
+  }
+
+  @Test
+  fun skillsAreListedWithTheirBotsAddressAndWhatOneMayReach() = runBlocking {
+    server.enqueue(
+        MockResponse()
+            .setBody(
+                """{"skills":[{"id":"kab12cd34","name":"Nova","url":"https://bots.example.com/nova","when":"","later":true,"fields":{},"hasKey":false,"createdAt":1,"updatedAt":2,""" +
+                    """"address":{"hint":"jbt1_ab12…wxyz","person":"u_nova","reach":["ask","home"],"at":1793350800000}}],""" +
+                    """"reach":["ask","memory.read","memory.write","family","car.read","car.control","home","hermes","media","mail","calendar"]}""",
+            ),
+    )
+    val list = admin.skills()
+    val a = list.skills.single().address!!
+    assertEquals("jbt1_ab12…wxyz", a.hint)
+    assertEquals(listOf("ask", "home"), a.reach)
+    assertEquals(1793350800000L, a.at)
+    assertTrue("hermes" in list.reach)
+    // One that only asks Jarvis, through its own address, needs no key.
+    assertEquals("on", skillsState(list.skills))
+    assertEquals("need", skillsState(list.skills.map { it.copy(address = null) }))
+  }
+
+  @Test
+  fun aBotsAddressIsMadeWithWhatItMayReachAndShownOnce() = runBlocking {
+    server.enqueue(
+        MockResponse()
+            .setResponseCode(201)
+            .setBody(
+                """{"skill":{"id":"kab12cd34","name":"Nova","url":"https://bots.example.com/nova","fields":{},"hasKey":true,"address":{"hint":"jbt1_ab12…wxyz","person":"u_nova","reach":["ask"],"at":5}},""" +
+                    """"token":"jbt1_ab12test0000wxyz","base":"https://jarvis.example.com/api/v1/bot","url":"https://jarvis.example.com/api/v1/bot/jbt1_ab12test0000wxyz"}""",
+            ),
+    )
+    val made = admin.skillAddress("kab12cd34", listOf("ask"))
+    assertEquals("jbt1_ab12test0000wxyz", made.token)
+    assertEquals("https://jarvis.example.com/api/v1/bot", made.base)
+    assertEquals("${made.base}/${made.token}", made.url)
+    assertEquals(listOf("ask"), made.skill.address!!.reach)
+    val req = server.takeRequest()
+    assertEquals("PATCH", req.method)
+    assertEquals("/api/skills", req.path)
+    assertEquals("""{"id":"kab12cd34","address":true,"reach":["ask"]}""", req.body.readUtf8())
+  }
+
+  @Test
+  fun aBotsAddressIsStoppedAndWhatItMayReachTickedAgain() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"skill":{"id":"kab12cd34","name":"Nova","hasKey":true}}"""))
+    assertNull(admin.stopSkillAddress("kab12cd34").address)
+    val stop = server.takeRequest()
+    assertEquals("PATCH", stop.method)
+    assertEquals("""{"id":"kab12cd34","address":false}""", stop.body.readUtf8())
+
+    server.enqueue(MockResponse().setBody("""{"skill":{"id":"kab12cd34","name":"Nova","hasKey":true,"address":{"hint":"jbt1_ab12…wxyz","person":"u_nova","reach":["ask","hermes"],"at":5}}}"""))
+    assertEquals(listOf("ask", "hermes"), admin.skillReach("kab12cd34", listOf("ask", "hermes")).address!!.reach)
+    // No "address": ticked again, not a new one made.
+    val reach = server.takeRequest()
+    assertEquals("PATCH", reach.method)
+    assertEquals("""{"id":"kab12cd34","reach":["ask","hermes"]}""", reach.body.readUtf8())
+  }
+
+  @Test
+  fun aRefusedAddressSaysWhy() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":"no such skill"}"""))
+    try {
+      admin.skillAddress("kzz99zz99", listOf("ask"))
+      fail("a refused address should throw")
+    } catch (e: JarvisClient.JarvisException) {
+      assertEquals("no such skill", e.message)
     }
   }
 

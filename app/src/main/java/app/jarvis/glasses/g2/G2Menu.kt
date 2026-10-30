@@ -36,5 +36,5 @@ class G2Menu {
 /** The latest [most] of what alerts said in Chat, newest first, each as Chat reads it ("Title: text"). */
 fun g2AlertList(said: List<Said>, most: Int = 5): String {
   val alerts = said.filter { it.role == "assistant" && (it.alert != null || it.routine != null || it.job != null) }.takeLast(most).reversed()
-  return if (alerts.isEmpty()) "No alerts yet." else alerts.joinToString("\n\n") { it.read }
+  return if (alerts.isEmpty()) "No alerts yet." else alerts.joinToString("\n\n") { it.shown }
 }

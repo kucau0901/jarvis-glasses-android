@@ -1,9 +1,12 @@
 package app.jarvis.glasses.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.PersistableBundle
 import android.provider.MediaStore
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -14,12 +17,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -38,17 +44,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.jarvis.glasses.JarvisApp
 import app.jarvis.glasses.hub.AlertsOverview
+import app.jarvis.glasses.hub.MadeAddress
 import app.jarvis.glasses.hub.PlanView
 import app.jarvis.glasses.hub.Probe
 import app.jarvis.glasses.hub.RouterState
 import app.jarvis.glasses.hub.Skill
 import app.jarvis.glasses.hub.Usage
 import app.jarvis.glasses.jarvis.Loopback
+import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -62,7 +72,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 
 // The sections of the web app's Settings beyond the settings themselves (src/app/ui/Settings.ts,
-// ChatGptPlan.ts, AlertsPanel.ts, Export.ts in jarvis-voice-agent), with the same words.
+// ChatGptPlan.ts, AlertsPanel.ts, Skills.ts, Export.ts in jarvis-voice-agent), with the same words.
 
 /** A page of Jarvis settings: a back arrow, a title, then [content]. */
 @Composable
@@ -496,22 +506,44 @@ fun McpPage(app: JarvisApp, back: () -> Unit) {
 
 /* ---------- Skills ------------------------------------------------------------ */
 
-/** "on" every skill has its key, "need" one waits for it, "off" none, as the web app marks the section. */
+/**
+ * "on" every skill has its key (or only asks Jarvis, through its own address), "need" one waits for
+ * it, "off" none, as the web app marks the section.
+ */
 fun skillsState(all: List<Skill>?) = when {
   all == null -> ""
   all.isEmpty() -> "off"
-  all.all { it.hasKey } -> "on"
+  all.all { it.hasKey || it.address != null } -> "on"
   else -> "need"
 }
+
+/** What each scope a bot's address may reach lets it do, in the web app's words (src/app/ui/Devices.ts). */
+private val REACH =
+    mapOf(
+        "ask" to "ask questions",
+        "memory.read" to "read saved facts",
+        "memory.write" to "save and forget facts",
+        "car.read" to "battery, range, location",
+        "car.control" to "operate the car, including unlock",
+        "home" to "the house and cameras",
+        "hermes" to "Hermes, your own agent: it can run commands on its machine",
+        "media" to "Spotify",
+    )
 
 @Composable
 fun SkillsPage(app: JarvisApp, back: () -> Unit) {
   val scope = rememberCoroutineScope()
+  val ctx = LocalContext.current
   val c = Even.colors
   var skills by remember { mutableStateOf<List<Skill>?>(null) }
+  // What a bot's address may be ticked to reach, and, by skill, what is ticked and not saved yet.
+  var reach by remember { mutableStateOf<List<String>>(emptyList()) }
+  val ticked = remember { mutableStateMapOf<String, Set<String>>() }
   val typed = remember { mutableStateMapOf<String, String>() }
-  // The skill whose Remove was pressed once, waiting for the second press.
+  // The button pressed once ("remove", "new" or "stop", and its skill's id), waiting for the second press.
   var sure by remember { mutableStateOf<String?>(null) }
+  // A new address, shown this once: forgotten when the page is left, or when that address is stopped.
+  var made by remember { mutableStateOf<MadeAddress?>(null) }
   var say by remember { mutableStateOf("") }
   var bad by remember { mutableStateOf(false) }
 
@@ -520,8 +552,46 @@ fun SkillsPage(app: JarvisApp, back: () -> Unit) {
     bad = wrong
   }
 
+  /** True on the second press of [what]; the first only arms it. */
+  fun second(what: String): Boolean {
+    val armed = sure == what
+    sure = if (armed) null else what
+    return armed
+  }
+
   suspend fun load() {
-    runCatching { app.admin.skills() }.onSuccess { skills = it.skills }.onFailure { note("Could not read the skills: ${it.message}", true) }
+    runCatching { app.admin.skills() }
+        .onSuccess {
+          skills = it.skills
+          reach = it.reach
+          ticked.clear()
+        }
+        .onFailure { note("Could not read the skills: ${it.message}", true) }
+  }
+
+  /** [act], then the skills as Jarvis has them now; [said] when it went well. */
+  fun change(said: String, act: suspend () -> Unit) =
+      scope.launch { runCatching { act() }.onSuccess { note(said); load() }.onFailure { note(it.message ?: "Not changed", true) } }
+
+  /** A new address for [s]'s bot, reaching [picked]: shown this once, as a device's token is. */
+  fun make(s: Skill, picked: List<String>) =
+      scope.launch {
+        note("Making it…")
+        runCatching { app.admin.skillAddress(s.id, picked) }
+            .onSuccess {
+              made = it
+              note("${s.name} has an address of its own.")
+              load()
+            }
+            .onFailure { note(it.message ?: "Not made", true) }
+      }
+
+  fun copy(label: String, value: String) {
+    val clip = ClipData.newPlainText(label, value)
+    // Kept out of the clipboard's preview: whoever has the key or the URL may ask Jarvis as you.
+    clip.description.extras = PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+    note("$label copied.")
   }
 
   LaunchedEffect(Unit) { load() }
@@ -532,9 +602,32 @@ fun SkillsPage(app: JarvisApp, back: () -> Unit) {
         Note(
             "Outside services Jarvis sends requests to: a bot, an automation, your own code. Add one in chat, with its address: " +
                 "\"add a skill: Nova, my Grok bot, for the house and the car, at https://…\". Its key goes here, never in chat, and is " +
-                "never shown again; a skill is used once it has one. One that answers later sends its answer to POST /api/v1/notify, " +
-                "with an alerts-only token from Devices. MCP servers added in chat are under MCP servers.",
+                "never shown again; a skill is used once it has one. One that answers later posts its answer to the replyUrl in each " +
+                "request: it needs no token, and its answer shows in Chat under its name. Give one an address of its own to let it ask " +
+                "Jarvis or message you, reaching only what you tick. MCP servers added in chat are under MCP servers.",
         )
+      }
+    }
+    made?.let { m ->
+      item {
+        Tile(Modifier.fillMaxWidth()) {
+          Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("${m.skill.name}'s address: copy it now", style = MaterialTheme.typography.bodyLarge)
+            Note(
+                "This is the only time it is shown. Put it in ${m.skill.name}'s settings: the base URL with the key sent as " +
+                    "Authorization: Bearer, or, where only a URL can be given, the URL alone. Lost, make a new one here.",
+            )
+            for ((label, value) in listOf("Base URL" to m.base, "Key" to m.token, "Or the URL" to m.url)) {
+              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                  Text(label, style = MaterialTheme.typography.labelSmall, color = c.dim)
+                  Text(value, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                }
+                OutlinedButton(onClick = { copy(label, value) }) { Text("Copy") }
+              }
+            }
+          }
+        }
       }
     }
     val all = skills
@@ -578,15 +671,12 @@ fun SkillsPage(app: JarvisApp, back: () -> Unit) {
             }
             OutlinedButton(
                 onClick = {
-                  if (sure != s.id) {
-                    sure = s.id
-                    return@OutlinedButton
-                  }
-                  sure = null
+                  if (!second("remove ${s.id}")) return@OutlinedButton
                   scope.launch {
                     runCatching { app.admin.removeSkill(s.id) }
                         .onSuccess {
                           typed.remove(s.id)
+                          if (made?.skill?.id == s.id) made = null
                           note("${s.name} is removed.")
                           load()
                         }
@@ -594,7 +684,51 @@ fun SkillsPage(app: JarvisApp, back: () -> Unit) {
                   }
                 },
             ) {
-              Text(if (sure == s.id) "Remove it?" else "Remove")
+              Text(if (sure == "remove ${s.id}") "Remove it?" else "Remove")
+            }
+          }
+          // Its bot's own address, to ask Jarvis and message you: what it may reach, made, made again, or stopped.
+          if (reach.isNotEmpty()) {
+            val a = s.address
+            val picked = ticked[s.id] ?: (a?.reach ?: listOf("ask")).toSet()
+            val chosen = reach.filter { it in picked }
+            Text("Talks to Jarvis", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+            Note(
+                if (a != null) "With its address ${a.hint}, made ${DateFormat.getDateInstance().format(Date(a.at))}. It may reach:"
+                else "It cannot ask Jarvis or message you. Give it an address of its own to do that, reaching only what you tick:",
+            )
+            for (r in reach) {
+              val on = r in picked
+              Row(
+                  Modifier.fillMaxWidth().toggleable(value = on, role = Role.Checkbox) { ticked[s.id] = if (it) picked + r else picked - r },
+                  verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Checkbox(checked = on, onCheckedChange = null)
+                Column(Modifier.padding(start = 8.dp)) {
+                  Text(r, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                  // Hermes runs commands where it lives: never ticked unless someone ticks it.
+                  REACH[r]?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (r == "hermes") c.danger else c.dim) }
+                }
+              }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+              if (a == null) {
+                OutlinedButton(onClick = { make(s, chosen) }) { Text("Make its address") }
+              } else {
+                OutlinedButton(onClick = { change("${s.name} may reach what is ticked now.") { app.admin.skillReach(s.id, chosen) } }) { Text("Save what it may reach") }
+                OutlinedButton(onClick = { if (second("new ${s.id}")) make(s, chosen) }) { Text(if (sure == "new ${s.id}") "Replace it?" else "New address") }
+                OutlinedButton(
+                    onClick = {
+                      if (second("stop ${s.id}"))
+                          change("${s.name}'s address is stopped.") {
+                            app.admin.stopSkillAddress(s.id)
+                            if (made?.skill?.id == s.id) made = null
+                          }
+                    },
+                ) {
+                  Text(if (sure == "stop ${s.id}") "Stop it?" else "Stop it")
+                }
+              }
             }
           }
         }

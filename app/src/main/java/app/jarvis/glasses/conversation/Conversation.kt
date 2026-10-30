@@ -158,7 +158,7 @@ class Conversation(
   private suspend fun answer(heard: String, photo: ByteArray?) = coroutineScope {
     // The alert, unless Chat has it already (it is put there as it arrives).
     val recent = memory.recent()
-    val context = recent + listOfNotNull(opened?.let { o -> Turn.jarvis(o.said).takeIf { t -> recent.none { it == t } } })
+    val context = recent + listOfNotNull(opened?.let { o -> Turn.jarvis(o.told).takeIf { t -> recent.none { it == t } } })
     _note.value = ""
     // Sentences are played as they arrive, while the rest of the answer is still coming.
     val clips = Channel<ByteArray>(Channel.UNLIMITED)

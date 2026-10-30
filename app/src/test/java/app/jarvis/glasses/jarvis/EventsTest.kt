@@ -1,8 +1,18 @@
 package app.jarvis.glasses.jarvis
 
+import app.jarvis.glasses.hub.SkillFrom
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EventsTest {
@@ -71,6 +81,44 @@ class EventsTest {
     assertEquals(true, alert("""{"id":"a2","text":"Leave now","speak":true}""").talk)
     assertEquals(false, alert("""{"id":"a3","text":"A note","speak":false}""").talk)
     assertEquals("Leave now", alert("""{"id":"a2","title":"Jarvis","text":"Leave now","speak":true}""").said)
+  }
+
+  @Test
+  fun aBotsAlertCarriesItsSkill() {
+    fun alert(json: String) = Alert.fromMessage(parse("data: {\"type\":\"alert\",\"alert\":$json}").single())!!
+    val nova =
+        alert("""{"id":"b1","title":"Nova","text":"The trip form is due Friday.","speak":true,"urgent":false,"source":"api","skill":{"id":"kab12cd34","name":"Nova","about":"Check the school mail"}}""")
+    assertEquals(SkillFrom("kab12cd34", "Nova", "Check the school mail"), nova.skill)
+    assertEquals("api", nova.source)
+    // Said under its name, as any alert is; the model is told it as the bot's words.
+    assertEquals("Nova: The trip form is due Friday.", nova.said)
+    assertTrue(nova.told.startsWith("Nova, a skill (an outside bot the user added), answering what it was asked: \"Check the school mail\""))
+    // An older Jarvis sends none: an alert like any other.
+    val house = alert("""{"id":"b2","title":"Front door","text":"It is unlocked.","speak":true,"source":"api"}""")
+    assertNull(house.skill)
+    assertEquals(house.said, house.told)
+  }
+
+  @Test
+  fun aBotsExchangeKeptMakesChatReadItAgain() = runBlocking {
+    val server = MockWebServer()
+    server.enqueue(
+        MockResponse()
+            .withWebSocketUpgrade(
+                object : WebSocketListener() {
+                  override fun onOpen(webSocket: WebSocket, response: Response) {
+                    webSocket.send("""{"type":"conversation.said","said":[{"id":"x1_q","at":1,"role":"assistant","text":"Is the garage shut?"}]}""")
+                  }
+                },
+            ),
+    )
+    server.start()
+    val said = CompletableDeferred<Unit>()
+    val socket = AlertSocket(JarvisClient({ server.url("/").toString() }, { "jss1_test" }), this, onAlert = { false }, onGlassesOpen = {}, onSaid = { said.complete(Unit) })
+    socket.start()
+    withTimeout(5_000) { said.await() }
+    socket.stop()
+    server.shutdown()
   }
 
   @Test

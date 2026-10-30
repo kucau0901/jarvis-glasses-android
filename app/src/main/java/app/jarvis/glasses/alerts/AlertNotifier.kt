@@ -55,14 +55,15 @@ class AlertNotifier(
 
   fun show(alert: Alert): Boolean {
     if (!canShow()) return false
-    post(alert.id, alert.title, threads.open(alert), working = false, quiet = false)
+    post(alert.id, alert.title, threads.open(alert), threads.shown(alert.id, alert.text), working = false, quiet = false)
     return true
   }
 
   /** The person replied under [id]'s notification: ask Jarvis, then show the answer there. */
   fun reply(id: String, title: String, alertText: String, text: String) {
     val asked = threads.add(id, Turn.user(text), alertText)
-    post(id, title, asked, working = true, quiet = true)
+    val first = threads.shown(id, alertText)
+    post(id, title, asked, first, working = true, quiet = true)
     scope.launch {
       var answer = ""
       var ok = false
@@ -75,7 +76,7 @@ class AlertNotifier(
           }
           .onFailure { answer = "Couldn't reach Jarvis: ${it.message}" }
       if (answer.isEmpty()) answer = "That ended without an answer. Try again."
-      post(id, title, threads.add(id, Turn.jarvis(answer), alertText), working = false, quiet = true)
+      post(id, title, threads.add(id, Turn.jarvis(answer), alertText), first, working = false, quiet = true)
       // In Chat's conversation too, so Chat and the web app show it; what went wrong is not kept.
       if (ok) {
         val now = System.currentTimeMillis()
@@ -84,10 +85,11 @@ class AlertNotifier(
     }
   }
 
-  private fun post(id: String, title: String, turns: List<Turn>, working: Boolean, quiet: Boolean) {
+  /** [first]: how the alert itself reads, its words as they are, where the model is given them quoted ([Threads]). */
+  private fun post(id: String, title: String, turns: List<Turn>, first: String, working: Boolean, quiet: Boolean) {
     val style = Notification.MessagingStyle(you).setConversationTitle(title)
     val now = System.currentTimeMillis()
-    for (t in turns) style.addMessage(Markdown.plain(t.text), now, if (t.role == "user") null else jarvis)
+    turns.forEachIndexed { i, t -> style.addMessage(Markdown.plain(if (i == 0) first else t.text), now, if (t.role == "user") null else jarvis) }
     if (working) style.addMessage("Thinking…", now, jarvis)
 
     val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)

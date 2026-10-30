@@ -69,12 +69,13 @@ class ChatLog(
   override fun recent(): List<Turn> = transcript(_said.value, _kinds.value.keys, now())
 
   /**
-   * An alert as it arrives: in Chat at once, as Jarvis keeps it (by its id, under its title), so
-   * what is said next has it to refer to. Jarvis has kept it already, so it is not sent.
+   * An alert as it arrives: in Chat at once, as Jarvis keeps it (by its id, under its title, a
+   * bot's with its skill), so what is said next has it to refer to. Jarvis has kept it already, so
+   * it is not sent.
    */
   fun arrived(alert: Alert) = add(listOf(said(alert, now())))
 
-  private fun said(a: Alert, at: Long) = Said(a.id, at, "assistant", a.text, alert = AlertFrom(a.source, a.title))
+  private fun said(a: Alert, at: Long) = Said(a.id, at, "assistant", a.text, alert = AlertFrom(a.source, a.title), skill = a.skill)
 
   /** Emptied here and, signed in as a person, on every screen of theirs. */
   suspend fun clear() {
@@ -102,7 +103,8 @@ class ChatLog(
 
     /**
      * What a question goes with: the last twenty turns of the past three hours, as the web app's
-     * (src/app/history.ts there), without rows only [shown]. What a routine, job or alert said is named.
+     * (src/app/history.ts there), without rows only [shown]. What a routine, job or alert said is
+     * named, and a bot's words are quoted as its own ([Said.read]).
      */
     fun transcript(said: List<Said>, shown: Set<String>, now: Long): List<Turn> =
         said

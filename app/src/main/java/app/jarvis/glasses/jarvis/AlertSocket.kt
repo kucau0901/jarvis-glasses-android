@@ -25,7 +25,8 @@ import okhttp3.WebSocketListener
  * acknowledged.
  *
  * Jarvis asking for its own screen on the person's display glasses (`{"type":"glasses.open"}`, "open
- * Jarvis") is [onGlassesOpen].
+ * Jarvis") is [onGlassesOpen]. A bot's exchange with Jarvis kept in the person's conversation
+ * (`{"type":"conversation.said"}`, sent only to their own signed-in screens) is [onSaid].
  *
  * Reconnects with backoff while [start]ed; close code 4001 means the token was revoked, which stops
  * it for good.
@@ -35,6 +36,7 @@ class AlertSocket(
     private val scope: CoroutineScope,
     private val onAlert: (Alert) -> Boolean,
     private val onGlassesOpen: () -> Unit,
+    private val onSaid: () -> Unit,
 ) {
   enum class State { OFF, CONNECTING, CONNECTED, REVOKED }
 
@@ -67,7 +69,9 @@ class AlertSocket(
                       override fun onMessage(webSocket: WebSocket, text: String) {
                         if (text == "pong") return
                         val o = runCatching { SseParser.json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
-                        if ((o["type"] as? JsonPrimitive)?.contentOrNull == "glasses.open") return onGlassesOpen()
+                        val type = (o["type"] as? JsonPrimitive)?.contentOrNull
+                        if (type == "glasses.open") return onGlassesOpen()
+                        if (type == "conversation.said") return onSaid()
                         val alert = Alert.fromMessage(o) ?: return
                         if (onAlert(alert)) webSocket.send(ack(alert.id))
                       }

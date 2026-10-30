@@ -1,5 +1,6 @@
 package app.jarvis.glasses.conversation
 
+import app.jarvis.glasses.hub.SkillFrom
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.Turn
 import app.jarvis.glasses.jarvis.VoiceEvent
@@ -73,8 +74,8 @@ class ConversationTest {
 
     override fun keep(turns: List<Turn>, alert: Alert?) {
       kept += turns to alert
-      // As ChatLog keeps it: under its title.
-      alert?.let { this.turns += Turn.jarvis(it.said) }
+      // As ChatLog keeps it: under its title, a bot's words quoted.
+      alert?.let { this.turns += Turn.jarvis(it.told) }
       this.turns += turns
     }
   }
@@ -149,6 +150,19 @@ class ConversationTest {
     assertEquals(listOf(alert, null), memory.kept.map { it.second })
     assertEquals(Turn.jarvis("Office: Leave in ten minutes."), brain.asked[1].second.first())
     assertEquals(1, brain.asked[1].second.count { it.text == "Office: Leave in ten minutes." })
+  }
+
+  @Test
+  fun aBotsAlertIsSaidUnderItsNameAndAskedWithAsItsWords() = runTest {
+    val mouth = FakeMouth()
+    val brain = FakeBrain()
+    val alert = Alert("a2", "Nova", "The trip form is due Friday.", speak = true, urgent = false, source = "api", skill = SkillFrom("kab12cd34", "Nova"))
+    conversation(FakeEars("sign it for me"), mouth, brain).start(alert)
+    advanceUntilIdle()
+    assertEquals("tts:Nova: The trip form is due Friday.", mouth.played.first())
+    // Never as Jarvis's own plain words.
+    assertEquals(listOf(Turn.jarvis(alert.told)), brain.asked.single().second)
+    assertTrue(alert.told.startsWith("Nova, a skill (an outside bot the user added), in its own words"))
   }
 
   @Test
