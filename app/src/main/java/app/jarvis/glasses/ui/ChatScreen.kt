@@ -206,7 +206,7 @@ private fun SaidRow(s: Said, kind: String?, read: Boolean) {
       else -> MarkdownText(s.text, h.ink, h.dim, h.bubbleYou)
     }
     // A bot's answer or message under its name, with what it was asked, as the web app's pill has it; its question as
-    // "Nova asked"; Jarvis's answer to that is Jarvis's own.
+    // "Wren asked"; Jarvis's answer to that is Jarvis's own.
     val about = s.skill?.about?.takeIf { it.isNotBlank() }?.let { if (it.length > 40) " · ${it.take(40)}…" else " · $it" }.orEmpty()
     s.from?.let { Text(it + about, style = MaterialTheme.typography.labelSmall, color = h.dim, maxLines = 1, overflow = TextOverflow.Ellipsis) }
   }

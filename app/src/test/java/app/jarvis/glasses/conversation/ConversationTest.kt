@@ -156,13 +156,13 @@ class ConversationTest {
   fun aBotsAlertIsSaidUnderItsNameAndAskedWithAsItsWords() = runTest {
     val mouth = FakeMouth()
     val brain = FakeBrain()
-    val alert = Alert("a2", "Nova", "The trip form is due Friday.", speak = true, urgent = false, source = "api", skill = SkillFrom("kab12cd34", "Nova"))
+    val alert = Alert("a2", "Wren", "The trip form is due Friday.", speak = true, urgent = false, source = "api", skill = SkillFrom("kab12cd34", "Wren"))
     conversation(FakeEars("sign it for me"), mouth, brain).start(alert)
     advanceUntilIdle()
-    assertEquals("tts:Nova: The trip form is due Friday.", mouth.played.first())
+    assertEquals("tts:Wren: The trip form is due Friday.", mouth.played.first())
     // Never as Jarvis's own plain words.
     assertEquals(listOf(Turn.jarvis(alert.told)), brain.asked.single().second)
-    assertTrue(alert.told.startsWith("Nova, a skill (an outside bot the user added), in its own words"))
+    assertTrue(alert.told.startsWith("Wren, a skill (an outside bot the user added), in its own words"))
   }
 
   @Test

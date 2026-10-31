@@ -76,15 +76,15 @@ class AdminTest {
     server.enqueue(
         MockResponse()
             .setBody(
-                """{"skills":[{"id":"kab12cd34","name":"Nova","url":"https://bots.example.com/nova","when":"the house and the car","later":true,"keyHeader":"X-Nova-Key","fields":{"room":"lounge"},"hasKey":true,"createdAt":1,"updatedAt":2},""" +
+                """{"skills":[{"id":"kab12cd34","name":"Wren","url":"https://bots.example.com/wren","when":"the house and the car","later":true,"keyHeader":"X-Wren-Key","fields":{"room":"lounge"},"hasKey":true,"createdAt":1,"updatedAt":2},""" +
                     """{"id":"kef56gh78","name":"Lumen","url":"https://bots.example.com/lumen","when":"the garden","later":false,"fields":{},"hasKey":false,"createdAt":3,"updatedAt":3}]}""",
             ),
     )
-    val (nova, lumen) = admin.skills().skills
-    assertTrue(nova.hasKey)
-    assertEquals("X-Nova-Key", nova.keyHeader)
-    assertEquals(mapOf("room" to "lounge"), nova.fields)
-    assertTrue(nova.later)
+    val (wren, lumen) = admin.skills().skills
+    assertTrue(wren.hasKey)
+    assertEquals("X-Wren-Key", wren.keyHeader)
+    assertEquals(mapOf("room" to "lounge"), wren.fields)
+    assertTrue(wren.later)
     assertFalse(lumen.hasKey)
     assertNull(lumen.keyHeader)
     val req = server.takeRequest()
@@ -94,14 +94,14 @@ class AdminTest {
 
   @Test
   fun aSkillsKeyIsPutWithItsId() = runBlocking {
-    server.enqueue(MockResponse().setBody("""{"skill":{"id":"kab12cd34","name":"Nova","url":"https://bots.example.com/nova","when":"","later":false,"fields":{},"hasKey":true,"createdAt":1,"updatedAt":2}}"""))
-    assertTrue(admin.skillKey("kab12cd34", "nova-test-key-0001").hasKey)
+    server.enqueue(MockResponse().setBody("""{"skill":{"id":"kab12cd34","name":"Wren","url":"https://bots.example.com/wren","when":"","later":false,"fields":{},"hasKey":true,"createdAt":1,"updatedAt":2}}"""))
+    assertTrue(admin.skillKey("kab12cd34", "wren-test-key-0001").hasKey)
     val req = server.takeRequest()
     assertEquals("PUT", req.method)
     assertEquals("/api/skills", req.path)
     val body = Json.parseToJsonElement(req.body.readUtf8()).jsonObject
     assertEquals("kab12cd34", body["id"]!!.jsonPrimitive.content)
-    assertEquals("nova-test-key-0001", body["key"]!!.jsonPrimitive.content)
+    assertEquals("wren-test-key-0001", body["key"]!!.jsonPrimitive.content)
   }
 
   @Test
@@ -120,8 +120,8 @@ class AdminTest {
     server.enqueue(
         MockResponse()
             .setBody(
-                """{"skills":[{"id":"kab12cd34","name":"Nova","url":"https://bots.example.com/nova","when":"","later":true,"fields":{},"hasKey":false,"createdAt":1,"updatedAt":2,""" +
-                    """"address":{"hint":"jbt1_ab12…wxyz","person":"u_nova","reach":["ask","home"],"at":1793350800000}}],""" +
+                """{"skills":[{"id":"kab12cd34","name":"Wren","url":"https://bots.example.com/wren","when":"","later":true,"fields":{},"hasKey":false,"createdAt":1,"updatedAt":2,""" +
+                    """"address":{"hint":"jbt1_ab12…wxyz","person":"u_wren","reach":["ask","home"],"at":1793350800000}}],""" +
                     """"reach":["ask","memory.read","memory.write","family","car.read","car.control","home","hermes","media","mail","calendar"]}""",
             ),
     )
@@ -142,7 +142,7 @@ class AdminTest {
         MockResponse()
             .setResponseCode(201)
             .setBody(
-                """{"skill":{"id":"kab12cd34","name":"Nova","url":"https://bots.example.com/nova","fields":{},"hasKey":true,"address":{"hint":"jbt1_ab12…wxyz","person":"u_nova","reach":["ask"],"at":5}},""" +
+                """{"skill":{"id":"kab12cd34","name":"Wren","url":"https://bots.example.com/wren","fields":{},"hasKey":true,"address":{"hint":"jbt1_ab12…wxyz","person":"u_wren","reach":["ask"],"at":5}},""" +
                     """"token":"jbt1_ab12test0000wxyz","base":"https://jarvis.example.com/api/v1/bot","url":"https://jarvis.example.com/api/v1/bot/jbt1_ab12test0000wxyz"}""",
             ),
     )
@@ -159,13 +159,13 @@ class AdminTest {
 
   @Test
   fun aBotsAddressIsStoppedAndWhatItMayReachTickedAgain() = runBlocking {
-    server.enqueue(MockResponse().setBody("""{"skill":{"id":"kab12cd34","name":"Nova","hasKey":true}}"""))
+    server.enqueue(MockResponse().setBody("""{"skill":{"id":"kab12cd34","name":"Wren","hasKey":true}}"""))
     assertNull(admin.stopSkillAddress("kab12cd34").address)
     val stop = server.takeRequest()
     assertEquals("PATCH", stop.method)
     assertEquals("""{"id":"kab12cd34","address":false}""", stop.body.readUtf8())
 
-    server.enqueue(MockResponse().setBody("""{"skill":{"id":"kab12cd34","name":"Nova","hasKey":true,"address":{"hint":"jbt1_ab12…wxyz","person":"u_nova","reach":["ask","hermes"],"at":5}}}"""))
+    server.enqueue(MockResponse().setBody("""{"skill":{"id":"kab12cd34","name":"Wren","hasKey":true,"address":{"hint":"jbt1_ab12…wxyz","person":"u_wren","reach":["ask","hermes"],"at":5}}}"""))
     assertEquals(listOf("ask", "hermes"), admin.skillReach("kab12cd34", listOf("ask", "hermes")).address!!.reach)
     // No "address": ticked again, not a new one made.
     val reach = server.takeRequest()

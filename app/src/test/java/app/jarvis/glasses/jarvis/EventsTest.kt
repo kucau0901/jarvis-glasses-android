@@ -86,13 +86,13 @@ class EventsTest {
   @Test
   fun aBotsAlertCarriesItsSkill() {
     fun alert(json: String) = Alert.fromMessage(parse("data: {\"type\":\"alert\",\"alert\":$json}").single())!!
-    val nova =
-        alert("""{"id":"b1","title":"Nova","text":"The trip form is due Friday.","speak":true,"urgent":false,"source":"api","skill":{"id":"kab12cd34","name":"Nova","about":"Check the school mail"}}""")
-    assertEquals(SkillFrom("kab12cd34", "Nova", "Check the school mail"), nova.skill)
-    assertEquals("api", nova.source)
+    val wren =
+        alert("""{"id":"b1","title":"Wren","text":"The trip form is due Friday.","speak":true,"urgent":false,"source":"api","skill":{"id":"kab12cd34","name":"Wren","about":"Check the school mail"}}""")
+    assertEquals(SkillFrom("kab12cd34", "Wren", "Check the school mail"), wren.skill)
+    assertEquals("api", wren.source)
     // Said under its name, as any alert is; the model is told it as the bot's words.
-    assertEquals("Nova: The trip form is due Friday.", nova.said)
-    assertTrue(nova.told.startsWith("Nova, a skill (an outside bot the user added), answering what it was asked: \"Check the school mail\""))
+    assertEquals("Wren: The trip form is due Friday.", wren.said)
+    assertTrue(wren.told.startsWith("Wren, a skill (an outside bot the user added), answering what it was asked: \"Check the school mail\""))
     // An older Jarvis sends none: an alert like any other.
     val house = alert("""{"id":"b2","title":"Front door","text":"It is unlocked.","speak":true,"source":"api"}""")
     assertNull(house.skill)
