@@ -207,8 +207,9 @@ data class SkillFrom(val id: String = "", val name: String = "", val about: Stri
 /** As much of a bot's words as the model is told, as the web app's. */
 private const val SKILL_SAID = 1_000
 
-// Every kind of space and line break: JavaScript's \s, and more.
-private val SPACES = Regex("(?U)\\s+")
+// Every kind of space and line break: JavaScript's \s, and more. Spelled out because Android's
+// regex engine (ICU) rejects the JVM's (?U) flag, and the first bot message crashed the app.
+private val SPACES = Regex("[\\s\\p{Z}\\u000B\\u0085\\uFEFF]+")
 
 private fun oneLine(s: String, max: Int) = s.replace(SPACES, " ").trim().replace("\"", "”").take(max)
 
