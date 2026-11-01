@@ -17,15 +17,25 @@ import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import app.jarvis.glasses.ui.EvenTheme
+import app.jarvis.glasses.ui.Glyphs
+import app.jarvis.tv.jarvis.Panel
 import app.jarvis.tv.Voice.Companion.TAG
 import java.lang.ref.WeakReference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -38,10 +48,53 @@ class MainActivity : ComponentActivity() {
   private var apps by mutableStateOf(emptyList<AppTile>())
   private var note by mutableStateOf("")
 
+  /** What's on screen: Home, or a page over it that Back closes. */
+  private sealed interface Screen {
+    data object Home : Screen
+
+    data object Drawer : Screen
+
+    data object SignIn : Screen
+
+    /** A thing's page. A car's tiles all carry the car's key, so its place in the panel says which. */
+    data class Thing(val panel: String, val key: String, val index: Int) : Screen
+
+    data class Notes(val panel: String) : Screen
+  }
+
+  private var screen by mutableStateOf<Screen>(Screen.Home)
+
+  /** What the next words heard are for: Jarvis or an app, a new tile on a panel, a new panel, or a to-do. */
+  private sealed interface Purpose {
+    data object Ask : Purpose
+
+    data class Add(val panel: Panel) : Purpose
+
+    data object NewPanel : Purpose
+
+    data class Note(val panel: Panel) : Purpose
+  }
+
+  private var purpose: Purpose = Purpose.Ask
+
+  private lateinit var tv: TvJarvis
+
   /** Whether the recogniser service refused this app, so the system's own listening screen is used. */
   private var useSystemListener = false
 
-  private val askMic = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) talk() else note = "Jarvis needs the mic to hear you" }
+  /** What to listen for once the mic is allowed: the first press asks for it. */
+  private var afterMic: Pair<Purpose, String>? = null
+
+  private val askMic =
+      registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        val then = afterMic
+        afterMic = null
+        if (!ok) note = "Jarvis needs the mic to hear you" else if (then != null) listen(then.first, then.second)
+      }
+
+  /** OK is held down, and a page opened under it must not take its release (or repeats) as a press. */
+  private var okHeld = false
+  private var swallowOk = false
 
   private val systemListener =
       registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -61,6 +114,7 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     voice = Voice(this, heard = ::heard, refused = ::refused)
+    tv = TvJarvis(this, lifecycleScope)
     talkOnResume = pressedJustNow(intent)
     loadApps()
     registerReceiver(
@@ -72,20 +126,132 @@ class MainActivity : ComponentActivity() {
           addDataScheme("package")
         },
     )
-    // The home screen has nowhere to go back to: Back only stops listening and clears the panel.
+    // Home has nowhere to go back to: Back closes the page over it, or stops listening and Jarvis talking.
     onBackPressedDispatcher.addCallback(this) {
-      voice.stop()
-      note = ""
+      if (screen == Screen.SignIn) tv.stopPairing()
+      if (screen != Screen.Home) {
+        screen = Screen.Home
+      } else {
+        voice.stop()
+        tv.quiet()
+        note = ""
+      }
     }
     setContent {
       val state by voice.state.collectAsStateWithLifecycle()
-      EvenTheme(dark = true) { TvHome(apps, state, note, onTalk = ::talk, onOpen = ::open, onSettings = ::openSettings) }
+      // The Even Realities app's look is its light one.
+      EvenTheme(dark = false) { Screens(state) }
+    }
+  }
+
+  @Composable
+  private fun Screens(state: Voice.State) {
+    Box(Modifier.fillMaxSize()) {
+      Page(state)
+      // Away from Home, the panel isn't there: what's heard and what happened shows in a strip instead.
+      if (screen != Screen.Home) {
+        val line =
+            when (state) {
+              is Voice.State.Listening -> "LISTENING  " + state.words.ifEmpty { note }
+              is Voice.State.Failed -> state.why
+              Voice.State.Idle -> note.ifEmpty { tv.notice }.ifEmpty { tv.working }
+            }
+        StatusStrip(line, Modifier.align(Alignment.BottomCenter))
+      }
+    }
+  }
+
+  @Composable
+  private fun Page(state: Voice.State) {
+    when (val s = screen) {
+      Screen.Home ->
+          TvHome(
+              apps.map { it.app.pkg }.toSet(),
+              state,
+              note.ifEmpty { tv.notice },
+              onTalk = ::talk,
+              onOpen = ::open,
+              onDrawer = { screen = Screen.Drawer },
+              answer = { AnswerCard(tv.heard, tv.working, tv.answer, tv.picture) },
+          ) {
+            if (tv.signedIn) {
+              jarvisPanels(
+                  tv.panels,
+                  tv.readings,
+                  tv.busy.keys.toSet(),
+                  tv.armed,
+                  onPress = { p, r -> if (!tv.press(p, r)) screen = Screen.Thing(p.id, r.key, p.rows.indexOf(r)) },
+                  onMore = { p, r ->
+                    if (okHeld) swallowOk = true
+                    screen = if (r.kind == "note") Screen.Notes(p.id) else Screen.Thing(p.id, r.key, p.rows.indexOf(r))
+                  },
+                  onAdd = { p -> listen(Purpose.Add(p), "Say what to add to ${p.title}") },
+                  onNewPanel = { listen(Purpose.NewPanel, "Say what the new panel should have") },
+              )
+            } else {
+              item { Title("Jarvis") }
+              item {
+                IconTile(Glyphs.Chat, "Sign in", Modifier.fillMaxWidth(1f / 6)) {
+                  screen = Screen.SignIn
+                  tv.pair()
+                }
+              }
+            }
+          }
+      Screen.Drawer -> AppDrawer(apps.filter { a -> HOME_APPS.none { it.pkg == a.app.pkg } }, onOpen = ::open, onSettings = ::openSettings)
+      Screen.SignIn -> {
+        PairScreen(tv.pairCode, if (tv.signedIn) tv.prefs.name else null, tv.pairError, onRetry = tv::pair)
+        LaunchedEffect(tv.signedIn) {
+          if (tv.signedIn) {
+            delay(2_000)
+            screen = Screen.Home
+          }
+        }
+      }
+      is Screen.Thing -> {
+        val panel = tv.panels.firstOrNull { it.id == s.panel }
+        val row = panel?.rows?.getOrNull(s.index)?.takeIf { it.key == s.key } ?: panel?.rows?.firstOrNull { it.key == s.key }
+        if (panel == null || row == null) {
+          LaunchedEffect(Unit) { screen = Screen.Home }
+        } else {
+          ThingDetail(
+              panel,
+              row,
+              tv.readings[thingKey(panel, row)],
+              tv.busy[thingKey(panel, row)] == true,
+              onAct = { action, member, value -> tv.act(panel, row, action, member, value) },
+              onRemoveTile = {
+                tv.removeTile(panel, row)
+                screen = Screen.Home
+              },
+              onRemovePanel = {
+                tv.removePanel(panel)
+                screen = Screen.Home
+              },
+              onClose = { screen = Screen.Home },
+          )
+        }
+      }
+      is Screen.Notes -> {
+        val panel = tv.panels.firstOrNull { it.id == s.panel }
+        if (panel == null) {
+          LaunchedEffect(Unit) { screen = Screen.Home }
+        } else {
+          NotesPage(
+              panel,
+              onTick = { key -> tv.note(panel, tick = key) },
+              onAdd = { listen(Purpose.Note(panel), "Say the to-do") },
+              onClear = { tv.note(panel, clear = true) },
+          )
+        }
+      }
     }
   }
 
   override fun onDestroy() {
     unregisterReceiver(packagesChanged)
     voice.stop()
+    tv.release()
     super.onDestroy()
   }
 
@@ -98,6 +264,7 @@ class MainActivity : ComponentActivity() {
   override fun onResume() {
     super.onResume()
     front = WeakReference(this)
+    tv.startPolling()
     if (talkOnResume) {
       talkOnResume = false
       talk()
@@ -107,12 +274,25 @@ class MainActivity : ComponentActivity() {
   override fun onPause() {
     if (front?.get() === this) front = null
     voice.stop()
+    tv.stopPolling()
     super.onPause()
   }
 
   /** The apps, read away from the main thread: their banners take a while to draw on this TV. */
   private fun loadApps() {
     lifecycleScope.launch { apps = withContext(Dispatchers.Default) { installedApps(packageManager, packageName) } }
+  }
+
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    if (event.keyCode in OK_KEYS) {
+      if (event.action == KeyEvent.ACTION_DOWN) okHeld = true
+      if (event.action == KeyEvent.ACTION_UP) okHeld = false
+      if (swallowOk) {
+        if (event.action == KeyEvent.ACTION_UP) swallowOk = false
+        return true
+      }
+    }
+    return super.dispatchKeyEvent(event)
   }
 
   // Without MicButton switched on, the mic button never gets here; the Talk tile and a search key do.
@@ -125,10 +305,18 @@ class MainActivity : ComponentActivity() {
   }
 
   /** Listens; pressed again while listening, finishes and acts on what was said so far. */
-  fun talk() {
+  fun talk() = listen(Purpose.Ask)
+
+  /** Listens for [why], with [prompt] on the panel until words come. Jarvis stops talking first. */
+  private fun listen(why: Purpose, prompt: String = "") {
     if (voice.state.value is Voice.State.Listening) return voice.finish()
-    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return askMic.launch(Manifest.permission.RECORD_AUDIO)
-    note = ""
+    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+      afterMic = why to prompt
+      return askMic.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    purpose = why
+    tv.interrupt()
+    note = prompt
     if (useSystemListener || !voice.available) return listenWithSystem()
     voice.listen()
   }
@@ -146,15 +334,25 @@ class MainActivity : ComponentActivity() {
   }
 
   private fun heard(words: String) {
-    val app = appAsked(words, apps.map { it.app })
-    if (app != null) return open(app)
-    // Jarvis's part comes next: until this TV is paired, say what was heard.
-    note = "“$words” — Jarvis isn't connected yet"
+    val why = purpose
+    purpose = Purpose.Ask
+    note = ""
+    when (why) {
+      is Purpose.Add -> tv.ask("Add this to my \u201C${why.panel.title}\u201D Home panel: $words", shown = words)
+      Purpose.NewPanel -> tv.ask("Make me a new Home panel: $words", shown = words)
+      is Purpose.Note -> tv.note(why.panel, add = words)
+      Purpose.Ask -> {
+        val app = appAsked(words, askable(apps))
+        if (app != null) open(app.pkg) else tv.ask(words)
+      }
+    }
   }
 
-  private fun open(app: TvApp) {
-    val go = launchIntent(packageManager, app.pkg) ?: return run { note = "Can't open ${app.label}" }
-    note = "Opening ${app.label}"
+  private fun open(pkg: String) {
+    val name = HOME_APPS.firstOrNull { it.pkg == pkg }?.name ?: apps.firstOrNull { it.app.pkg == pkg }?.app?.label ?: pkg
+    val go = launchIntent(packageManager, pkg) ?: return run { note = "Can't open $name" }
+    note = "Opening $name"
+    screen = Screen.Home
     startActivity(go)
   }
 
@@ -173,6 +371,8 @@ class MainActivity : ComponentActivity() {
   }
 
   companion object {
+    private val OK_KEYS = setOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER)
+
     /** Opens Jarvis listening: the mic button, from anywhere on the TV. */
     const val TALK = "app.jarvis.tv.TALK"
 

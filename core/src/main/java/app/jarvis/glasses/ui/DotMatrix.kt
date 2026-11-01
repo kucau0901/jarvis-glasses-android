@@ -10,12 +10,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Text drawn as dots, like the glasses' display in the Even app's preview. Digits, a colon and a
- * space; anything else is left blank.
+ * Text drawn as dots, like the glasses' display in the Even app's preview. Digits, the letters A to
+ * Z (a small letter is drawn as its capital), a colon and a space; anything else is left blank. The
+ * letters are there for the TV's pairing code, which is typed on Jarvis web, so each must read as
+ * itself: the 0 has its slash, the O none.
  */
 @Composable
 fun DotMatrix(text: String, color: Color, dot: Dp = 3.dp, modifier: Modifier = Modifier, ghost: Color = Color.Transparent) {
-  val rows = List(GLYPH_H) { y -> text.map { ch -> GLYPHS[ch]?.get(y) ?: "....." }.joinToString(".") }
+  val rows = List(GLYPH_H) { y -> text.map { ch -> (GLYPHS[ch] ?: GLYPHS[ch.uppercaseChar()])?.get(y) ?: "....." }.joinToString(".") }
   Dots(rows, color, dot, modifier, ghost)
 }
 
@@ -55,4 +57,30 @@ private val GLYPHS: Map<Char, List<String>> =
         '9' to listOf(".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."),
         ':' to listOf(".....", "..#..", "..#..", ".....", "..#..", "..#..", "....."),
         ' ' to List(7) { "....." },
+        'A' to listOf(".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
+        'B' to listOf("####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."),
+        'C' to listOf(".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."),
+        'D' to listOf("###..", "#..#.", "#...#", "#...#", "#...#", "#..#.", "###.."),
+        'E' to listOf("#####", "#....", "#....", "####.", "#....", "#....", "#####"),
+        'F' to listOf("#####", "#....", "#....", "####.", "#....", "#....", "#...."),
+        'G' to listOf(".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".####"),
+        'H' to listOf("#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
+        'I' to listOf(".###.", "..#..", "..#..", "..#..", "..#..", "..#..", ".###."),
+        'J' to listOf("..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."),
+        'K' to listOf("#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"),
+        'L' to listOf("#....", "#....", "#....", "#....", "#....", "#....", "#####"),
+        'M' to listOf("#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"),
+        'N' to listOf("#...#", "#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#"),
+        'O' to listOf(".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
+        'P' to listOf("####.", "#...#", "#...#", "####.", "#....", "#....", "#...."),
+        'Q' to listOf(".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"),
+        'R' to listOf("####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"),
+        'S' to listOf(".####", "#....", "#....", ".###.", "....#", "....#", "####."),
+        'T' to listOf("#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."),
+        'U' to listOf("#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
+        'V' to listOf("#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."),
+        'W' to listOf("#...#", "#...#", "#...#", "#.#.#", "#.#.#", "#.#.#", ".#.#."),
+        'X' to listOf("#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"),
+        'Y' to listOf("#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."),
+        'Z' to listOf("#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"),
     )

@@ -56,6 +56,16 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- Jarvis's Cloudflare Access token, handed over by adb (Setup.kt). Only the shell holds
+             WRITE_SECURE_SETTINGS, so no app on the TV can start it. -->
+        <activity
+            android:name=".Setup"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:permission="android.permission.WRITE_SECURE_SETTINGS"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <service
             android:name=".MicButton"
             android:exported="true"
