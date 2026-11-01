@@ -22,4 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "jarvis-glasses-android"
 
-include(":app")
+include(":app", ":core", ":tv")
