@@ -75,7 +75,8 @@ class Conversation(
     private val memory: Memory,
     private val followUps: () -> Boolean,
 ) {
-  enum class Status { IDLE, LISTENING, THINKING, SPEAKING }
+  /** OPENING while the glasses' microphone and speakers are routed to, which takes up to a few seconds. */
+  enum class Status { IDLE, OPENING, LISTENING, THINKING, SPEAKING }
 
   private val _status = MutableStateFlow(Status.IDLE)
   val status: StateFlow<Status> = _status
@@ -110,6 +111,8 @@ class Conversation(
 
   private suspend fun run(opening: Alert?) {
     opened = opening
+    // At once: a Live session that couldn't open hands over to this, and the phone shows it going on.
+    _status.value = Status.OPENING
     try {
       if (!mouth.open()) {
         _note.value = "Couldn't open the microphone and speaker"

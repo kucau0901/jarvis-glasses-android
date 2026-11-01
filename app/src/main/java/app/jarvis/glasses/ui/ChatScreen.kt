@@ -27,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
@@ -141,6 +143,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
 
   SkyBehind()
   val h = Hark.colors
+  // The message box's height, for the conversation pill above it.
+  var composer by remember { mutableIntStateOf(0) }
   Box(Modifier.fillMaxSize()) {
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -171,7 +175,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
       work?.let { w -> item(key = "working") { workRev.let { WorkingRow(w.steps, w.thinking) } } }
       if (note.isNotEmpty()) item { Text(note, style = MaterialTheme.typography.bodySmall, color = h.dim) }
     }
-    Column(Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.align(Alignment.BottomCenter).onSizeChanged { composer = it.height }.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       if (photo != null) HarkButton("Photo added · remove", solid = false) { photo = null }
       MessagePill(
           text,
@@ -184,6 +188,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
           mic = hooks::talk,
       )
     }
+    // A conversation going on, just above the message box however tall it grows.
+    LiveWave(app, Modifier.align(Alignment.BottomCenter).padding(bottom = with(LocalDensity.current) { composer.toDp() }))
   }
 }
 

@@ -20,6 +20,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import app.jarvis.glasses.conversation.Ears
 import app.jarvis.glasses.conversation.Mouth
+import app.jarvis.glasses.live.VoiceLevel
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.abs
@@ -55,6 +56,10 @@ class GlassesAudio(context: Context) : Ears, Mouth {
   private val _connected = MutableStateFlow(false)
   /** Whether the glasses are connected to the phone as a headset right now. */
   val connected: StateFlow<Boolean> = _connected
+
+  private val _level = MutableStateFlow(0f)
+  /** How loud the microphone is while Talk listens, 0..1 (VoiceLevel), for the wave. */
+  val level: StateFlow<Float> = _level
 
   private val _headset = MutableStateFlow<String?>(null)
   /** The glasses' name while they are connected as a headset, for glasses no toolkit knows. */
@@ -141,6 +146,7 @@ class GlassesAudio(context: Context) : Ears, Mouth {
         val bytes = ByteArray(buf.size * 2)
         var verdict = SpeechGate.Verdict.LISTENING
         var loudest = 0
+        var heard = 0f
         try {
           record.startRecording()
           while (isActive && verdict == SpeechGate.Verdict.LISTENING) {
@@ -154,10 +160,13 @@ class GlassesAudio(context: Context) : Ears, Mouth {
             }
             pcm.write(bytes, 0, n * 2)
             verdict = gate.feed(buf, n)
+            heard = VoiceLevel.smooth(heard, VoiceLevel.loudness(gate.level / Short.MAX_VALUE), rise = 0.5f, fall = 0.15f)
+            _level.value = heard
           }
         } finally {
           runCatching { record.stop() }
           record.release()
+          _level.value = 0f
           // How a turn ended, and how loud the microphone got: tells "nobody spoke" from
           // "spoke, but too quietly to count".
           Log.i(TAG, "listen: $verdict, ${pcm.size() / 2 / (RATE / 1000)} ms, loudest $loudest, from ${record.routedDevice?.productName}")

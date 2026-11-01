@@ -27,6 +27,7 @@ import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RTCStatsReport
 import org.webrtc.RtpReceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
@@ -59,6 +60,10 @@ class LiveVoice(
   private val _note = MutableStateFlow("")
   /** Why the last session couldn't open, if it couldn't. */
   val note: StateFlow<String> = _note
+
+  private val _voices = MutableStateFlow(Voices())
+  /** How loud each side is while a session is live, about ten times a second, for the wave. */
+  val voices: StateFlow<Voices> = _voices
 
   private var job: Job? = null
   private var factory: PeerConnectionFactory? = null
@@ -102,6 +107,9 @@ class LiveVoice(
     var track: AudioTrack? = null
     var relay: LiveRelay? = null
     var openedAt = 0L
+    // Both stop before the connection is closed: stats asked of a disposed one crash natively.
+    var watch: Job? = null
+    var meter: Job? = null
     try {
       if (!audio.open()) return onFail("Couldn't open the microphone and speaker")
       val f = factory()
@@ -174,21 +182,29 @@ class LiveVoice(
       peer.setRemote(SessionDescription(SessionDescription.Type.ANSWER, answer.sdp))
       openedAt = System.currentTimeMillis()
 
-      val watch = scope.launch {
+      watch = scope.launch {
         while (isActive) {
           delay(1_000)
           val quiet = System.currentTimeMillis() - r.lastActivity
           if ((!r.working && quiet > quietMs()) || quiet > WORKING_MS || r.saidGoodbye()) ended.complete(Unit)
         }
       }
+      meter = scope.launch {
+        while (isActive) {
+          delay(METER_MS)
+          // A report can come back after the session ended: it must not move the next one's wave.
+          peer.getStats { report -> if (_state.value != State.OFF) _voices.value = heard(report, _voices.value, r.working) }
+        }
+      }
       ended.await()
-      watch.cancel()
       Log.i(TAG, "ended after ${(System.currentTimeMillis() - openedAt) / 1000} s")
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
       onFail(e.message ?: "Live voice couldn't start")
     } finally {
+      watch?.cancel()
+      meter?.cancel()
       channel = null
       relay?.stop()
       runCatching { pc?.close() }
@@ -198,8 +214,28 @@ class LiveVoice(
       if (openedAt > 0) scope.launch { client.reportLive(((System.currentTimeMillis() - openedAt) / 1000).toInt()) }
       // Before the session reads as off, so a Talk right after it starts from all of it.
       relay?.finish()
+      _voices.value = Voices()
       _state.value = State.OFF
     }
+  }
+
+  /** The two voices in a stats [report]: the microphone's as sent ("media-source"), Jarvis's as received ("inbound-rtp"). */
+  private fun heard(report: RTCStatsReport, before: Voices, thinking: Boolean): Voices {
+    var user = 0.0
+    var agent = 0.0
+    for (s in report.statsMap.values) {
+      if (s.members["kind"] != "audio") continue
+      val level = (s.members["audioLevel"] as? Number)?.toDouble() ?: continue
+      when (s.type) {
+        "media-source" -> user = maxOf(user, level)
+        "inbound-rtp" -> agent = maxOf(agent, level)
+      }
+    }
+    return Voices(
+        VoiceLevel.smooth(before.user, VoiceLevel.peakLoudness(user)),
+        VoiceLevel.smooth(before.agent, VoiceLevel.peakLoudness(agent)),
+        thinking,
+    )
   }
 
   private fun factory(): PeerConnectionFactory =
@@ -219,6 +255,7 @@ class LiveVoice(
     private const val TAG = "LiveVoice"
     const val QUIET_MS = 30_000L
     const val WORKING_MS = 120_000L
+    private const val METER_MS = 100L
   }
 }
 

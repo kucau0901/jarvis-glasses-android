@@ -29,6 +29,10 @@ class SpeechGate(
   var heardSpeech = false
     private set
 
+  /** The last buffer's loudness (RMS, in sample units). */
+  var level = 0.0
+    private set
+
   /** Feeds one buffer of 16-bit samples; read [Verdict] after each. */
   fun feed(samples: ShortArray, count: Int = samples.size): Verdict {
     if (count <= 0) return Verdict.LISTENING
@@ -37,7 +41,7 @@ class SpeechGate(
       val s = samples[i].toDouble()
       sum += s * s
     }
-    val level = sqrt(sum / count)
+    level = sqrt(sum / count)
     val ms = count * 1000.0 / sampleRate
     elapsedMs += ms
 
