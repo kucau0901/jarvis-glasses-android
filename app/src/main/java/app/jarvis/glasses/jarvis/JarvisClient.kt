@@ -10,6 +10,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -98,13 +99,15 @@ class JarvisClient(
 
   /**
    * The work behind a live session's delegation: the conversation so far to `/api/v1/stream`,
-   * whose events ([LiveRelay] reads them) are streamed to [onEvent].
+   * whose events ([LiveRelay] reads them) are streamed to [onEvent]. Said as heard by an open
+   * microphone (`openMic`): when nothing in it was said to Jarvis, its result says `notForMe`.
    */
   suspend fun delegate(delegationId: String, transcript: List<Turn>, onEvent: suspend (JsonObject) -> Unit) =
       withContext(Dispatchers.IO) {
         val body = buildJsonObject {
           put("delegationId", delegationId)
           put("transcript", turnsJson(transcript))
+          put("openMic", true)
           origin()?.let { put("origin", it) }
         }
         stream("/api/v1/stream", body, onEvent)
@@ -154,13 +157,18 @@ class JarvisClient(
    * With [opening], a session opened to say that alert and hear the reply: Jarvis puts it last in
    * the history and answers with `first`, the event to send on `oai-events` once it opens (GPT-Live
    * cannot speak first from the server; docs/api.md, "Live voice", in jarvis-voice-agent).
+   *
+   * [glasses]: heard through the glasses, whose microphone hears everyone nearby. A Jarvis that
+   * knows them ([knowsGlasses]) is told so (`client: "glasses"`), and the session stays silent
+   * unless spoken to; any other is told "mobile", as an older one takes what it doesn't know for a
+   * car.
    */
-  suspend fun liveSession(offerSdp: String, history: List<Turn>, opening: Alert? = null): LiveAnswer =
+  suspend fun liveSession(offerSdp: String, history: List<Turn>, opening: Alert? = null, glasses: Boolean = false): LiveAnswer =
       withContext(Dispatchers.IO) {
         val body = buildJsonObject {
           put("sdp", offerSdp)
           put("history", turnsJson(history))
-          put("client", "mobile")
+          put("client", if (glasses && knowsGlasses()) "glasses" else "mobile")
           if (opening != null) put("opening", buildJsonObject { put("id", opening.id); put("title", opening.title); put("text", opening.text) })
         }
         val req = request("/api/session").post(body.toString().toRequestBody(JSON)).build()
@@ -172,6 +180,34 @@ class JarvisClient(
           LiveAnswer(sdp, (o["first"] as? JsonObject)?.toString())
         }
       }
+
+  // What /api/health said of the version, by address: asked once, and again only after no answer.
+  @Volatile private var health: Pair<String, String>? = null
+
+  /** Whether this Jarvis is [GLASSES_SINCE] or later, so knows a live session's `client: "glasses"`. */
+  internal suspend fun knowsGlasses(): Boolean {
+    val url = baseUrl()
+    val version =
+        health?.takeIf { it.first == url }?.second
+            ?: try {
+              // Not long: a live session waits on it.
+              withTimeoutOrNull(HEALTH_MS) {
+                exchange(request("/api/health").get().build()) { res ->
+                  val text = res.body?.string().orEmpty()
+                  when {
+                    // A Jarvis from before it.
+                    res.code == 404 -> ""
+                    // No answer from Jarvis itself (it restarting, a gateway's error page): asked again next time.
+                    !res.isSuccessful -> null
+                    else -> runCatching { SseParser.json.parseToJsonElement(text).jsonObject }.getOrNull()?.let { (it["version"] as? JsonPrimitive)?.contentOrNull.orEmpty() }
+                  }
+                }
+              }
+            } catch (_: IOException) {
+              null
+            }?.also { health = url to it }
+    return atLeast(version.orEmpty(), GLASSES_SINCE)
+  }
 
   /** How long a live session was open, for Jarvis's Usage page (it bills by the minute). */
   suspend fun reportLive(seconds: Int) {
@@ -251,6 +287,23 @@ class JarvisClient(
   companion object {
     private val JSON = "application/json".toMediaType()
     private val WAV = "audio/wav".toMediaType()
+    /** The first Jarvis with `client: "glasses"` and `openMic`. */
+    const val GLASSES_SINCE = "2.8.0"
+    private const val HEALTH_MS = 3_000L
+
+    /** Whether [version] ("2.8.0", "v2.10", "2.8.0-rc.1") is [least] or later; false when it can't be read. */
+    fun atLeast(version: String, least: String): Boolean {
+      fun parts(v: String) = v.trim().removePrefix("v").substringBefore('-').substringBefore('+').split('.').map { it.toIntOrNull() }
+      val have = parts(version)
+      val want = parts(least)
+      if (have.any { it == null }) return false
+      for (i in 0 until maxOf(have.size, want.size)) {
+        val a = have.getOrNull(i) ?: 0
+        val b = want.getOrNull(i) ?: 0
+        if (a != b) return a > b
+      }
+      return true
+    }
 
     fun defaultHttp(): OkHttpClient =
         OkHttpClient.Builder()

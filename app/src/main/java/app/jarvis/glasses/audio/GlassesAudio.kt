@@ -116,6 +116,14 @@ class GlassesAudio(context: Context) : Ears, Mouth {
     return ok
   }
 
+  /** Whether the conversation open now goes through the glasses, whose microphone hears everyone nearby, not the phone. */
+  fun onGlasses(): Boolean =
+      routed &&
+          runCatching {
+                audio.communicationDevice?.let { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO && GLASSES.containsMatchIn(it.productName.toString()) }
+              }
+              .getOrNull() == true
+
   override fun close() {
     if (!routed) return
     runCatching { audio.clearCommunicationDevice() }

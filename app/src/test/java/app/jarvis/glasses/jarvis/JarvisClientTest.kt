@@ -13,9 +13,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -189,6 +191,65 @@ class JarvisClientTest {
     val body = kotlinx.serialization.json.Json.parseToJsonElement(req.body.readUtf8()).jsonObject
     assertEquals("d1", body["delegationId"]!!.jsonPrimitive.content)
     assertEquals("lock the car", body["transcript"]!!.jsonArray[0].jsonObject["text"]!!.jsonPrimitive.content)
+    // Heard by a live session's microphone, which hears everyone.
+    assertEquals("true", body["openMic"]!!.jsonPrimitive.content)
+  }
+
+  private fun clientOf(req: RecordedRequest) =
+      kotlinx.serialization.json.Json.parseToJsonElement(req.body.readUtf8()).jsonObject["client"]!!.jsonPrimitive.content
+
+  @Test
+  fun aLiveSessionThroughTheGlassesSaysSoToAJarvisThatKnowsThem() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"ok":true,"version":"2.8.0"}"""))
+    repeat(3) { server.enqueue(MockResponse().setBody("""{"sdp":"v=0 answer"}""")) }
+    client.liveSession("v=0 offer", emptyList(), glasses = true)
+    assertEquals("/api/health", server.takeRequest().path)
+    assertEquals("glasses", clientOf(server.takeRequest()))
+    // Asked once: the next session goes straight on.
+    client.liveSession("v=0 offer", emptyList(), glasses = true)
+    assertEquals("glasses", clientOf(server.takeRequest()))
+    // Through the phone, "mobile" as before.
+    client.liveSession("v=0 offer", emptyList(), glasses = false)
+    assertEquals("mobile", clientOf(server.takeRequest()))
+  }
+
+  @Test
+  fun anOlderJarvisIsToldMobileEvenThroughTheGlasses() = runBlocking {
+    // An older one would take "glasses" for a car.
+    for (health in listOf(MockResponse().setBody("""{"ok":true,"version":"2.7.4"}"""), MockResponse().setResponseCode(404))) {
+      val fresh = JarvisClient({ server.url("/").toString() }, { "jdv1_test" })
+      server.enqueue(health)
+      server.enqueue(MockResponse().setBody("""{"sdp":"v=0 answer"}"""))
+      fresh.liveSession("v=0 offer", emptyList(), glasses = true)
+      assertEquals("/api/health", server.takeRequest().path)
+      assertEquals("mobile", clientOf(server.takeRequest()))
+    }
+  }
+
+  @Test
+  fun aHealthThatWasNoAnswerIsAskedAgain() = runBlocking {
+    // Jarvis restarting behind its tunnel: not taken for an older Jarvis.
+    server.enqueue(MockResponse().setResponseCode(502).setBody("<html>Bad gateway</html>"))
+    server.enqueue(MockResponse().setBody("""{"sdp":"v=0 answer"}"""))
+    server.enqueue(MockResponse().setBody("""{"ok":true,"version":"2.8.0"}"""))
+    server.enqueue(MockResponse().setBody("""{"sdp":"v=0 answer"}"""))
+    client.liveSession("v=0 offer", emptyList(), glasses = true)
+    assertEquals("/api/health", server.takeRequest().path)
+    assertEquals("mobile", clientOf(server.takeRequest()))
+    client.liveSession("v=0 offer", emptyList(), glasses = true)
+    assertEquals("/api/health", server.takeRequest().path)
+    assertEquals("glasses", clientOf(server.takeRequest()))
+  }
+
+  @Test
+  fun versionsAreComparedByNumber() {
+    assertTrue(JarvisClient.atLeast("2.8.0", "2.8.0"))
+    assertTrue(JarvisClient.atLeast("2.10.0", "2.8.0"))
+    assertTrue(JarvisClient.atLeast("v3.0", "2.8.0"))
+    assertTrue(JarvisClient.atLeast("2.8.1-rc.1", "2.8.0"))
+    assertFalse(JarvisClient.atLeast("2.7.12", "2.8.0"))
+    assertFalse(JarvisClient.atLeast("", "2.8.0"))
+    assertFalse(JarvisClient.atLeast("dev", "2.8.0"))
   }
 
   @Test
