@@ -191,8 +191,9 @@ class Conversation(
   }
 
   /**
-   * Asks [heard] and plays the answer; false when Jarvis says nothing heard was said to it, which
-   * ends the conversation. Its own scope, so stopping the conversation stops the playing too.
+   * Asks [heard] and plays the answer; false when Jarvis says nothing heard was said to it, or
+   * answers without words (a tool ran before it found that), which ends the conversation. Its own
+   * scope, so stopping the conversation stops the playing too.
    */
   private suspend fun answer(heard: String, photo: ByteArray?): Boolean = coroutineScope {
     // The alert, unless Chat has it already (it is put there as it arrives).
@@ -236,7 +237,7 @@ class Conversation(
       mouth.say(reply.text)
     }
     if (reply.notForMe) _note.value = "Nothing heard was said to Jarvis, so nothing was kept"
-    !reply.notForMe
+    !reply.notForMe && reply.text.isNotBlank()
   }
 
   companion object {

@@ -152,6 +152,25 @@ class ConversationTest {
   }
 
   @Test
+  fun anAnswerWithoutWordsEndsItKeepingNothing() = runTest {
+    // A tool ran, then Jarvis found it wasn't said to it: no words, and no notForMe.
+    val silent =
+        object : Brain by FakeBrain() {
+          override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, onEvent: suspend (VoiceEvent) -> Unit) =
+              VoiceEvent.Answer("", true).also { onEvent(it) }
+        }
+    val ears = FakeEars("lights down for the film", "never listened for")
+    val mouth = FakeMouth()
+    val memory = FakeMemory()
+    conversation(ears, mouth, silent, memory = memory).start()
+    advanceUntilIdle()
+    assertEquals(1, ears.waits.size)
+    assertTrue(memory.kept.isEmpty())
+    assertTrue(mouth.said.isEmpty() && mouth.played.isEmpty())
+    assertEquals(listOf("cue", "closing", "close"), mouth.log)
+  }
+
+  @Test
   fun anOpeningQuestionNotForJarvisKeepsNothing() = runTest {
     val heard = "can you pass me the blue folder"
     val memory = FakeMemory()
