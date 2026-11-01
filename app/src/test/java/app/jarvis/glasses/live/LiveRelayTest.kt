@@ -257,6 +257,56 @@ class LiveRelayTest {
   }
 
   @Test
+  fun aSessionThatHangsUpByItselfLetsJarvisFinish() = runTest {
+    val answer = CompletableDeferred<String>()
+    val sent = Sent()
+    val said = mutableListOf<Turn>()
+    val r = relay(sent, emptyList(), said = said, eventsFor = { listOf(answer.await()) })
+    r.onMessage(user("book a table for four at eight"))
+    r.onMessage(delegation("d1"))
+    advanceUntilIdle()
+    // Hung up (it ran long), not stopped: the work goes on, and what it was for waits for it.
+    r.finish()
+    assertTrue(r.working)
+    assertTrue(said.isEmpty())
+    answer.complete("""{"type":"result","text":"Booked for eight."}""")
+    advanceUntilIdle()
+    // Never said, so kept instead.
+    assertTrue(sent.of("session.commentary.append").isEmpty())
+    assertEquals(listOf(Turn.user("book a table for four at eight"), Turn.jarvis("Booked for eight.")), said)
+  }
+
+  @Test
+  fun aSessionThatHangsUpByItselfStillDropsWhatWasNotForJarvis() = runTest {
+    val answer = CompletableDeferred<String>()
+    val said = mutableListOf<Turn>()
+    val r = relay(Sent(), emptyList(), said = said, eventsFor = { listOf(answer.await()) })
+    r.onMessage(user("the table by the window"))
+    r.onMessage(delegation("d1"))
+    advanceUntilIdle()
+    r.finish()
+    answer.complete(notForMe)
+    advanceUntilIdle()
+    assertTrue(said.isEmpty())
+  }
+
+  @Test
+  fun aStoppedSessionCutsJarvisShortAndKeepsTheQuestion() = runTest {
+    val never = CompletableDeferred<String>()
+    val said = mutableListOf<Turn>()
+    val r = relay(Sent(), emptyList(), said = said, eventsFor = { listOf(never.await()) })
+    r.onMessage(user("book a table for four at eight"))
+    r.onMessage(delegation("d1"))
+    advanceUntilIdle()
+    // Stop, or the glasses taken off.
+    r.stop()
+    r.finish()
+    advanceUntilIdle()
+    assertFalse(r.working)
+    assertEquals(listOf(Turn.user("book a table for four at eight")), said)
+  }
+
+  @Test
   fun aSessionHearingOnlyOthersIsUnansweredAfterAWhile() = runTest {
     val r = relay(Sent(), listOf(notForMe))
     r.opened()

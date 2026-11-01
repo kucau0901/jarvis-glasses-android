@@ -14,6 +14,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -145,7 +146,8 @@ class LiveVoice(
       // GPT-Live carries every session event on a channel with this exact label.
       val channel = peer.createDataChannel("oai-events", DataChannel.Init())
       val r = LiveRelay(scope, client::delegate, send = { text ->
-        channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray()), false))
+        // Its work can outlive the session, and a closed channel takes nothing.
+        runCatching { channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray()), false)) }
       }, onSaid = onSaid)
       r.seed(history)
       relay = r
@@ -216,6 +218,8 @@ class LiveVoice(
     } catch (e: Exception) {
       onFail(e.message ?: "Live voice couldn't start")
     } finally {
+      // Stopped (Stop, or the glasses taken off) rather than hung up by itself.
+      val stopped = !currentCoroutineContext().isActive
       watch?.cancel()
       meter?.cancel()
       // Let go first: an alert that comes meanwhile goes to a notification, not into a closing session.
@@ -228,7 +232,9 @@ class LiveVoice(
           withContext(NonCancellable) { withTimeoutOrNull(300) { while (c.bufferedAmount() > 0) delay(20) } }
         }
       }
-      relay?.stop()
+      // Only then is Jarvis's work cut short. Hung up by itself (quiet, or a slow answer), the session
+      // lets Jarvis finish: what it was asked to do is done, and its answer kept ([LiveRelay.finish]).
+      if (stopped) relay?.stop()
       runCatching { pc?.close() }
       runCatching { pc?.dispose() }
       runCatching { track?.dispose() }

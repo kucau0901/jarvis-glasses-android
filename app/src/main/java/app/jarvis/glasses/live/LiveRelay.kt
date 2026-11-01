@@ -103,12 +103,18 @@ class LiveRelay(
   private var holdFrom = 0
   // Jarvis was handed words to say ([telling]): its next words are them, an answer to nothing heard.
   private var handed = false
+  // The session is over ([finish]): a delegation still at work can no longer be said.
+  private var ended = false
 
-  /** The session has ended: its last turns are finished too, and what nobody answered is dropped. */
+  /**
+   * The session has ended: its last turns are finished too, and what nobody answered is dropped. A
+   * delegation still at work (the session hung up by itself) is waited for, and its answer, never
+   * said, is kept instead; one cut short ([stop]) counts as answered: Jarvis took it as said to it.
+   */
   @Synchronized
   fun finish() {
-    // A delegation cut short counts as answered: Jarvis took it as said to it.
-    pending = null
+    ended = true
+    if (!working) pending = null
     settle(said.size)
   }
 
@@ -213,12 +219,20 @@ class LiveRelay(
     }
   }
 
-  /** Delegation [id] is over: what waited for it is settled as far as the wearer's latest segment. */
+  /** Delegation [id] is over: what waited for it is settled as far as the wearer's latest segment, or all of it once the session is over. */
   @Synchronized
   private fun done(id: String) {
     if (pending != id) return
     pending = null
-    settle(said.indexOfLast { it.role == "user" }.coerceAtLeast(settled))
+    settle(if (ended) said.size else said.indexOfLast { it.role == "user" }.coerceAtLeast(settled))
+  }
+
+  /** The session ended while Jarvis worked, so [text] can't be said: kept as Jarvis's words instead. False while it is open. */
+  @Synchronized
+  private fun keptInstead(text: String): Boolean {
+    if (!ended) return false
+    said += Said("assistant", text)
+    return true
   }
 
   private suspend fun run(id: String, latest: Int, transcript: List<Turn>) {
@@ -244,7 +258,7 @@ class LiveRelay(
                 forJarvis = false
                 notForMe(id, latest)
               }
-              text.isNotBlank() -> speak(id, text)
+              text.isNotBlank() -> if (!keptInstead(text)) speak(id, text)
             }
           }
         }
