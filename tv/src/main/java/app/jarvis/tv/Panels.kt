@@ -61,7 +61,6 @@ fun LazyListScope.jarvisPanels(
     panels: List<Panel>,
     readings: Map<String, Reading>,
     busy: Set<String>,
-    armed: String?,
     onPress: (Panel, PanelRow) -> Unit,
     onMore: (Panel, PanelRow) -> Unit,
     onAdd: (Panel) -> Unit,
@@ -79,7 +78,7 @@ fun LazyListScope.jarvisPanels(
           for (slot in slots) {
             when (slot) {
               is PanelSlot.Thing ->
-                  ThingTile(slot.row, readings[thingKey(panel, slot.row)], thingKey(panel, slot.row) in busy, thingKey(panel, slot.row) == armed, Modifier.weight(1f), { onPress(panel, slot.row) }) {
+                  ThingTile(slot.row, readings[thingKey(panel, slot.row)], thingKey(panel, slot.row) in busy, Modifier.weight(1f), { onPress(panel, slot.row) }) {
                     onMore(panel, slot.row)
                   }
               PanelSlot.Add -> IconTile(AppIcons.Add, "Add", Modifier.weight(1f)) { onAdd(panel) }
@@ -100,16 +99,6 @@ fun thingKey(panel: Panel, row: PanelRow): String = panel.id + "\n" + row.key + 
 /** The button OK on a thing's tile works: its first one that needs nothing typed or chosen. */
 fun firstButton(row: PanelRow): PanelAction? = row.actions.firstOrNull { it.input == null }
 
-/**
- * Whether OK on [row]'s tile has to be pressed twice to work [button]: the house's ways in (a lock,
- * the gate, a garage or door) and the alarm. A remote is easy to press by mistake while moving
- * past a tile, and an open gate is worse than a light left on.
- */
-fun needsSecondPress(row: PanelRow, button: PanelAction): Boolean =
-    row.icon in GUARDED_ICONS || GUARDED_WORDS.containsMatchIn(button.label) || GUARDED_WORDS.containsMatchIn(button.action)
-
-private val GUARDED_ICONS = setOf("lock", "unlock", "gate", "garage", "door", "alarm", "shield")
-private val GUARDED_WORDS = Regex("\\b(unlock|open|disarm|arm)\\b", RegexOption.IGNORE_CASE)
 
 /** Home's rows: six tiles across, as the TV's apps are. */
 internal const val TILES_PER_ROW = 6
@@ -198,7 +187,7 @@ internal fun TileRow(filled: Int, content: @Composable RowScope.() -> Unit) {
  * green dot when on along the top; its name, state and button's name along the bottom.
  */
 @Composable
-private fun ThingTile(row: PanelRow, reading: Reading?, busy: Boolean, armed: Boolean, modifier: Modifier, onPress: () -> Unit, onMore: () -> Unit) {
+private fun ThingTile(row: PanelRow, reading: Reading?, busy: Boolean, modifier: Modifier, onPress: () -> Unit, onMore: () -> Unit) {
   val c = Even.colors
   val face = tileFace(row, reading)
   FocusTile(onPress, modifier, onLongClick = onMore) {
@@ -222,7 +211,7 @@ private fun ThingTile(row: PanelRow, reading: Reading?, busy: Boolean, armed: Bo
                 modifier = Modifier.weight(1f),
             )
           }
-          face.button?.let { Pill(if (armed) "Press again" else it.label, busy, Modifier.padding(start = if (face.status.isEmpty()) 0.dp else 6.dp), armed) }
+          face.button?.let { Pill(it.label, busy, Modifier.padding(start = if (face.status.isEmpty()) 0.dp else 6.dp)) }
         }
       }
       face.bar?.let { BatteryBar(it, face.low, Modifier.padding(top = 5.dp)) }
@@ -230,17 +219,17 @@ private fun ThingTile(row: PanelRow, reading: Reading?, busy: Boolean, armed: Bo
   }
 }
 
-/** A thing's button's name in a thin pill, as the Even app's small buttons; grey while it is being pressed, red while it waits for its second press. */
+/** A thing's button's name in a thin pill, as the Even app's small buttons; grey while it is being pressed. */
 @Composable
-private fun Pill(label: String, busy: Boolean, modifier: Modifier = Modifier, armed: Boolean = false) {
+private fun Pill(label: String, busy: Boolean, modifier: Modifier = Modifier) {
   val c = Even.colors
-  val ink = if (armed) c.danger else if (busy) c.dim else c.ink
+  val ink = if (busy) c.dim else c.ink
   Text(
       label,
       style = TextStyle(fontSize = 12.sp, color = ink),
       maxLines = 1,
       overflow = TextOverflow.Ellipsis,
-      modifier = modifier.widthIn(max = 84.dp).outlinePill(if (armed) c.danger else if (busy) c.line else c.dim).padding(horizontal = 8.dp, vertical = 2.dp),
+      modifier = modifier.widthIn(max = 84.dp).outlinePill(if (busy) c.line else c.dim).padding(horizontal = 8.dp, vertical = 2.dp),
   )
 }
 

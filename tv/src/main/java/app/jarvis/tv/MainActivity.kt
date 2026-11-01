@@ -18,6 +18,11 @@ import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
@@ -148,6 +153,7 @@ class MainActivity : ComponentActivity() {
   private fun Screens(state: Voice.State) {
     Box(Modifier.fillMaxSize()) {
       Page(state)
+      (screen as? Screen.Thing)?.let { Sheet(it) }
       // Away from Home, the panel isn't there: what's heard and what happened shows in a strip instead.
       if (screen != Screen.Home) {
         val line =
@@ -156,7 +162,7 @@ class MainActivity : ComponentActivity() {
               is Voice.State.Failed -> state.why
               Voice.State.Idle -> note.ifEmpty { tv.notice }.ifEmpty { tv.working }
             }
-        StatusStrip(line, Modifier.align(Alignment.BottomCenter))
+        StatusStrip(line, Modifier.align(if (screen is Screen.Thing) Alignment.TopCenter else Alignment.BottomCenter))
       }
     }
   }
@@ -164,7 +170,9 @@ class MainActivity : ComponentActivity() {
   @Composable
   private fun Page(state: Voice.State) {
     when (val s = screen) {
-      Screen.Home ->
+      // A thing's sheet rises over Home, which stays behind it as on the phone.
+      Screen.Home,
+      is Screen.Thing ->
           TvHome(
               apps.map { it.app.pkg }.toSet(),
               state,
@@ -179,8 +187,8 @@ class MainActivity : ComponentActivity() {
                   tv.panels,
                   tv.readings,
                   tv.busy.keys.toSet(),
-                  tv.armed,
-                  onPress = { p, r -> if (!tv.press(p, r)) screen = Screen.Thing(p.id, r.key, p.rows.indexOf(r)) },
+                  // OK opens the thing, as a tap does on the phone: its buttons are in the sheet, so nothing works by accident.
+                  onPress = { p, r -> screen = if (r.kind == "note") Screen.Notes(p.id) else Screen.Thing(p.id, r.key, p.rows.indexOf(r)) },
                   onMore = { p, r ->
                     if (okHeld) swallowOk = true
                     screen = if (r.kind == "note") Screen.Notes(p.id) else Screen.Thing(p.id, r.key, p.rows.indexOf(r))
@@ -208,30 +216,6 @@ class MainActivity : ComponentActivity() {
           }
         }
       }
-      is Screen.Thing -> {
-        val panel = tv.panels.firstOrNull { it.id == s.panel }
-        val row = panel?.rows?.getOrNull(s.index)?.takeIf { it.key == s.key } ?: panel?.rows?.firstOrNull { it.key == s.key }
-        if (panel == null || row == null) {
-          LaunchedEffect(Unit) { screen = Screen.Home }
-        } else {
-          ThingDetail(
-              panel,
-              row,
-              tv.readings[thingKey(panel, row)],
-              tv.busy[thingKey(panel, row)] == true,
-              onAct = { action, member, value -> tv.act(panel, row, action, member, value) },
-              onRemoveTile = {
-                tv.removeTile(panel, row)
-                screen = Screen.Home
-              },
-              onRemovePanel = {
-                tv.removePanel(panel)
-                screen = Screen.Home
-              },
-              onClose = { screen = Screen.Home },
-          )
-        }
-      }
       is Screen.Notes -> {
         val panel = tv.panels.firstOrNull { it.id == s.panel }
         if (panel == null) {
@@ -245,6 +229,36 @@ class MainActivity : ComponentActivity() {
           )
         }
       }
+    }
+  }
+
+  /** A thing's controls in a sheet from the bottom, over Home dimmed behind. */
+  @Composable
+  private fun BoxScope.Sheet(s: Screen.Thing) {
+    val panel = tv.panels.firstOrNull { it.id == s.panel }
+    val row = panel?.rows?.getOrNull(s.index)?.takeIf { it.key == s.key } ?: panel?.rows?.firstOrNull { it.key == s.key }
+    if (panel == null || row == null) {
+      LaunchedEffect(Unit) { screen = Screen.Home }
+    } else {
+      Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
+      ThingDetail(
+          panel,
+          row,
+          tv.readings[thingKey(panel, row)],
+          tv.busy[thingKey(panel, row)] == true,
+          onAct = { action, member, value -> tv.act(panel, row, action, member, value) },
+          onRemoveTile = {
+            tv.removeTile(panel, row)
+            screen = Screen.Home
+          },
+          onRemovePanel = {
+            tv.removePanel(panel)
+            screen = Screen.Home
+          },
+          onClose = { screen = Screen.Home },
+          // The remote stays in the sheet: Back or Close leaves it, not moving up past its top.
+          Modifier.align(Alignment.BottomCenter).focusGroup().focusProperties { onExit = { cancelFocusChange() } },
+      )
     }
   }
 

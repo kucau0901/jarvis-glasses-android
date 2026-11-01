@@ -49,12 +49,6 @@ class TvJarvis(context: Context, private val scope: CoroutineScope) {
   /** Tiles whose button was pressed and hasn't answered yet, by [thingKey]. */
   val busy = mutableStateMapOf<String, Boolean>()
 
-  /** The tile waiting for the second press its button needs ([needsSecondPress]), by [thingKey]; for a few seconds. */
-  var armed by mutableStateOf<String?>(null)
-    private set
-
-  private var disarming: Job? = null
-
   /** Signing in: the code to approve on Jarvis web, who approved it, or why it didn't work. */
   var pairCode by mutableStateOf<String?>(null)
     private set
@@ -150,25 +144,6 @@ class TvJarvis(context: Context, private val scope: CoroutineScope) {
         }
       }
     }
-  }
-
-  /** OK on a tile: its button, when it has one plain button. False when it has none, to open the tile instead. */
-  fun press(panel: Panel, row: PanelRow): Boolean {
-    val button = firstButton(row) ?: return false
-    val k = thingKey(panel, row)
-    disarming?.cancel()
-    if (needsSecondPress(row, button) && armed != k) {
-      armed = k
-      disarming =
-          scope.launch {
-            delay(4_000)
-            armed = null
-          }
-      return true
-    }
-    armed = null
-    act(panel, row, button.action, null, null)
-    return true
   }
 
   fun act(panel: Panel, row: PanelRow, action: String, member: String?, value: String?) {

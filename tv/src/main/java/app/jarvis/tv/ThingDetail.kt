@@ -1,6 +1,9 @@
 package app.jarvis.tv
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,7 +59,7 @@ import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 /**
- * All of a thing, on its own page: its name, state and reading in full, then every button and
+ * All of a thing, in a sheet that rises over Home as the phone's does: its name, state and reading in full, then every button and
  * control as a row of Even tiles the remote moves along, six to a row as on Home, and at the end
  * the ways to take it off Home. A number is chosen with − and + (the remote has no slider); words
  * can't be typed here, so those are left to asking Jarvis. While [busy] the controls are grey and
@@ -72,6 +75,7 @@ fun ThingDetail(
     onRemoveTile: () -> Unit,
     onRemovePanel: () -> Unit,
     onClose: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
   val c = Even.colors
   val start = remember { FocusRequester() }
@@ -86,7 +90,7 @@ fun ThingDetail(
   LaunchedEffect(panel.id, row.key) { start.requestFocus() }
   val act: (String, String?, String?) -> Unit = { a, m, v -> if (!busy) onAct(a, m, v) }
   Column(
-      Modifier.fillMaxSize().background(c.page).verticalScroll(rememberScrollState()).padding(horizontal = 48.dp, vertical = 27.dp),
+      modifier.fillMaxWidth().heightIn(max = 430.dp).clip(SHEET).background(c.page).verticalScroll(rememberScrollState()).padding(horizontal = 48.dp, vertical = 24.dp),
       verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
     Header(panel, row)
@@ -361,3 +365,6 @@ private fun tempWords(t: Double) = numberWords(t, 0.1)
 
 /** "heat_cool" as "Heat cool". */
 internal fun prettyWord(word: String): String = word.replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+/** The phone's bottom sheet: round at the top, square where it meets the screen's edge. */
+private val SHEET = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)

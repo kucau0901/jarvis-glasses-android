@@ -146,14 +146,4 @@ class PanelsTest {
     assertEquals("Heat cool", prettyWord("heat_cool"))
     assertEquals("Auto", prettyWord("auto"))
   }
-
-  @Test
-  fun waysInAndTheAlarmNeedASecondPress() {
-    val unlock = PanelAction("unlock", "Unlock")
-    assertTrue(needsSecondPress(thing("lock.front").copy(icon = "lock"), unlock))
-    assertTrue(needsSecondPress(thing("cover.gate").copy(icon = "gate"), PanelAction("open", "Open")))
-    assertTrue(needsSecondPress(thing("alarm").copy(icon = "dot"), PanelAction("disarm", "Disarm")))
-    assertFalse(needsSecondPress(thing("light.bed").copy(icon = "bulb"), PanelAction("toggle", "Turn off")))
-    assertFalse(needsSecondPress(thing("climate.bed").copy(icon = "snow"), PanelAction("off", "Turn off")))
-  }
 }
