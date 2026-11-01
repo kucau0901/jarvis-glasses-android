@@ -155,9 +155,30 @@ Glasses on, phone nearby (it can be locked; keep Jarvis allowed to run in the ba
 
 1. Say **"Hey Meta, open Jarvis"**.
 2. A short beep in the glasses means Jarvis is listening (in live voice there is no beep: just
-   talk). Ask something: "What's on my calendar today?", or "What am I looking at?" for the camera.
-3. Ask a follow-up straight away; no need to say "Hey Meta" again.
-4. Say **"thanks"** or "that's all" (or "terima kasih", "dah") to end, or just stay quiet.
+   talk). Ask something: "What's on my calendar today?", or "What am I looking at?" for the camera
+   (only as the first question).
+3. Ask a follow-up within 5 s; no need to say "Hey Meta" again.
+4. Say **"thanks"** or "that's all" (or "terima kasih", "dah") to end, or just stay quiet. Three
+   falling notes mean Jarvis has stopped listening: "Hey Meta, open Jarvis" again to go on.
+
+## What it hears
+
+The glasses' microphone hears everyone near you: a TV, people talking near you, a conversation you
+are having with someone else. With Jarvis 2.8.0 or later:
+
+- Something not said to Jarvis is ignored: nothing answered, nothing done, nothing kept (not in
+  Chat, not in your conversation on Jarvis), and the conversation ends with the closing tone.
+- The closing tone means "say Hey Meta, open Jarvis again". It plays whenever listening ends.
+- A follow-up still going at 15 s is taken for someone else talking and never sent; the opening
+  question and a reply to an alert may run to 45 s.
+- A photo goes only with the opening question, never with a follow-up.
+- Live voice keeps only the stretches of speech Jarvis replied to or acted on, and ends 20 s
+  after Jarvis last spoke, however much it hears meanwhile.
+
+A follow-up's recording still goes to Jarvis to be judged, and a live session streams all it hears
+to GPT-Live. Only switching off follow-ups and Live (Settings → Voice) keeps nearby conversations
+from being recorded at all: the microphone then opens only for your opening question, and for a
+reply to an alert Jarvis says. More in the README, "What it hears".
 
 ## When it doesn't work
 
@@ -171,6 +192,7 @@ Glasses on, phone nearby (it can be locked; keep Jarvis allowed to run in the ba
 | Consent screen says "Unverified app" | The build has no project IDs (step 4), or Developer Mode is on. |
 | It worked, then stopped after an update | Developer Mode switched itself back on, or a new Meta AI needs the toolkit reinstalled (step 5). |
 | Connect times out | Press Connect Meta AI again. |
+| A follow-up ends with three falling notes, unanswered | Jarvis took it as not said to it, or it ran past 15 s ("What it hears"). Say "Hey Meta, open Jarvis" and ask again. |
 | "Headset: not connected" | The glasses aren't connected to the phone over Bluetooth (folded, off, or out of range). Only a headset named like Meta glasses ("Ray-Ban", "Meta", "Oakley") counts. |
 
 `adb logcat -s GlassesLink GlassesAudio LiveVoice` shows what the app sees: whether the toolkit is in

@@ -7,16 +7,18 @@ features on the phone.
 **In the glasses**
 
 - **"Hey Meta, open Jarvis"** starts a conversation. After each answer the microphone opens again
-  for a follow-up; "thanks", "that's all", "dah", "terima kasih" or silence ends it.
+  for a follow-up; "thanks", "that's all", "dah", "terima kasih" or silence ends it, and a closing
+  tone says so. Jarvis answers only what is said to it, not the TV or people talking near you
+  ([What it hears](#what-it-hears)).
 - **Jarvis speaks first**: reminders, "time to leave", routines, job results and anything raised
   from Home Assistant are said in the glasses, then your reply is listened for. Without the
   glasses, they arrive as this app's notifications: **Reply** right there, and Jarvis's answer
   joins the same notification.
-- **"What am I looking at?"** (or "apa ni?") takes a photo with the glasses' camera and sends it
-  with the question.
+- **"What am I looking at?"** (or "apa ni?") as your opening question takes a photo with the
+  glasses' camera and sends it with the question.
 - **Live voice** (a switch): GPT-Live through Jarvis for a natural back-and-forth you can talk
   over. Needs Jarvis's `OPENAI_API_KEY`, costs about $0.05 a minute, and hangs up after a quiet
-  time you choose (10 s by default) or when you say goodbye.
+  time you choose (10 s by default), 20 s after Jarvis last spoke, or when you say goodbye.
 
 **On the phone**, in the look of the Even Realities app, light or dark (Settings → Theme):
 
@@ -95,7 +97,9 @@ on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by ste
 
 ### 5. Use it
 
-- **"Hey Meta, open Jarvis"**, wait for the beep, ask. Follow up straight away; say "thanks" to end.
+- **"Hey Meta, open Jarvis"**, wait for the beep, ask. Follow up within 5 s; say "thanks" to end.
+  The closing tone (three falling notes) means Jarvis has stopped listening: say "Hey Meta, open
+  Jarvis" again to go on.
 - **Talk** on Home or on the app's notification does the same from the phone. It reads **Stop**
   while Jarvis is busy.
 - **Live voice** (Home or Settings → Voice) switches Talk and "Hey Meta" to GPT-Live. Choose how
@@ -123,6 +127,48 @@ on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by ste
   stays connected all along, and has the glasses back as soon as the alert closes, so "Hey Even"
   and its own notifications go on working. **Settings → Voice → Show alerts on Even G2 glasses**
   switches it off.
+
+## What it hears
+
+The glasses' microphone hears everyone near you, not only you: a TV, people talking near you, a
+conversation you are having with someone else. With Jarvis 2.8.0 or later, every spoken question
+says so (`openMic`), and Jarvis answers only what was said to it.
+
+- **Not said to Jarvis: ignored.** When nothing heard was for Jarvis, nothing is answered, nothing
+  is done and nothing is kept: not in Chat, not in your conversation on Jarvis. The conversation
+  ends there.
+- **The closing tone**, three falling notes unlike the opening beep, means the microphone is shut:
+  say "Hey Meta, open Jarvis" again to talk. It plays whenever listening ends: silence, "thanks",
+  a follow-up that ran too long, something not said to Jarvis, or follow-ups switched off.
+- **Follow-ups are short.** After an answer the microphone waits 5 s for you to start. A follow-up
+  still going at 15 s is taken for someone else talking: nothing is sent, not even to be turned
+  into words, and the conversation ends. Your opening question, or a reply to an alert, may run to
+  45 s. "Okay", or the launch phrase heard again, is listened past once per answer, not without end.
+- **Photos only with the opening question**, the one right after "Hey Meta, open Jarvis": never
+  with a follow-up or a reply to an alert, so nobody else's "what's this?" takes a picture.
+- **Kept**: each question Jarvis answered, with its answer, in Chat and in your conversation on
+  Jarvis, as before.
+- **Live voice** hears everything around you while it is open. Through the glasses, Jarvis 2.8.0
+  or later tells GPT-Live so, and that it should stay silent unless spoken to. What it hears is
+  cut into stretches at each pause of 1.5 s or more. The app keeps only the stretches Jarvis
+  replied to or acted on, and sends only those when Jarvis's tools are asked for something; words
+  said in the same stretch as your question go with it. When Jarvis finds a request was set off by
+  something not said to it, none of it is kept and nothing is said about it. A session ends 20 s
+  after Jarvis last spoke or answered, however much is said around you, besides the quiet time
+  and "goodbye".
+- **On a G2** the microphone opens only when you tap, as before, so a follow-up there may run to
+  45 s too; something not said to Jarvis gets a short line on the display, and is not kept.
+
+What still leaves the phone: everything recorded in a follow-up goes to Jarvis to be turned into
+words and judged, then is dropped if it wasn't for Jarvis; a live session streams everything it
+hears to GPT-Live. **Only switching off follow-ups and Live** (Settings → Voice → *Listen for a
+follow-up after each answer*, and *Live voice*) **keeps nearby conversations from being recorded
+at all.** The microphone then opens only for your opening question after "Hey Meta, open
+Jarvis", and for your reply when Jarvis says an alert, up to 45 s each (*This phone may say alerts
+in the glasses and listen for a reply*, also under Settings → Voice, switches the replies off).
+
+An older Jarvis doesn't know `openMic`: what is heard is answered as before, and a live session is
+opened as on a phone. The rest above is the app's own, and holds with any Jarvis.
 
 ## Home events and mail
 
@@ -168,13 +214,13 @@ something.
 | Part | Where |
 | --- | --- |
 | Microphone and speakers | The glasses as a Bluetooth headset (HFP/SCO); without them, the phone as a speakerphone: `audio/GlassesAudio.kt`. |
-| End of a question | Loudness only, no touch: `audio/SpeechGate.kt` (1.2 s of quiet after speech). |
+| End of a question | Loudness only, no touch: `audio/SpeechGate.kt` (1.2 s of quiet after speech; speech still going at 15 s for a follow-up, 45 s otherwise, is too long and never sent). |
 | A spoken question | `POST /api/v1/voice` twice: hear it, then ask the words with the conversation so far and a photo when one was asked for; the answer streams back sentence by sentence (`jarvis/JarvisClient.kt`). |
-| The conversation | `conversation/Conversation.kt`: listen → hear → stop? photo? → ask → play → listen again. |
+| The conversation | `conversation/Conversation.kt`: listen → hear → stop? photo? → ask (`openMic`) → not for Jarvis? → play → listen again; the closing tone when listening ends. |
 | Alerts | WebSocket `/api/v1/events` (`jarvis/AlertSocket.kt`): in Chat at once; when the alert says `talk` and the glasses are connected, said in them (into an open live session, a live session opened with it as `opening`, or turn by turn), else a notification with Reply (`alerts/AlertNotifier.kt`). Either way acknowledged as seen, so Jarvis sends it nowhere else; with this app's notifications switched off in Android, Jarvis goes on to its other ways. |
 | Even Realities G2 | Bluetooth, the protocol MentraOS's G2 driver recovered (`g2/G2Wire.kt`), held only while an alert is up (`g2/G2Link.kt`); its LC3 microphone decoded by Google's liblc3 v1.1.3 (`src/main/cpp`, `audio/Lc3Decoder.kt`); the alert and the conversation about it (`g2/G2Alerts.kt`, `g2/G2Ears.kt`), and the menu "open Jarvis" shows (`g2/G2Menu.kt`, told by Jarvis on the alert socket), asking `/api/v1/voice` for an answer that fits the display (`chars`). |
 | Registration, camera, "Hey Meta" | Meta's Wearables Device Access Toolkit 1.0.1: `glasses/GlassesLink.kt`. |
-| Live voice | WebRTC (`live/LiveVoice.kt`) to Jarvis's `/api/session`; tool calls relayed to `/api/v1/stream` as the web app does (`live/LiveRelay.kt`). |
+| Live voice | WebRTC (`live/LiveVoice.kt`) to Jarvis's `/api/session` (`client: "glasses"` through the glasses, from Jarvis 2.8.0 by `/api/health`); tool calls relayed to `/api/v1/stream` as the web app does, with only the turns Jarvis answered (`live/LiveRelay.kt`). |
 | Signing in | Jarvis's pairing code (`jarvis/Pairing.kt`); the person's session reaches `/api/hub/…` (`hub/Hub.kt`) and, for an admin, the settings API (`hub/Admin.kt`). |
 | Chat | `ui/ChatScreen.kt`, its pills (`chat/Steps.kt`) and answers (`chat/Markdown.kt`, `ui/Answer.kt`), in the Hark look (`ui/Hark.kt`). |
 | Connecting a ChatGPT plan | The sign-in ends on `http://127.0.0.1:1455`, which the app answers itself (`jarvis/Loopback.kt`): nothing to paste. |
@@ -192,8 +238,8 @@ answers, the ChatGPT sign-in catcher, and the G2's framing, sign-in, pages and t
 glasses. `.mcp.json` connects Meta's toolkit docs server.
 
 Not covered by tests, to try with the glasses: the headset routing, "Hey Meta", the camera, live
-voice's WebRTC, an alert arriving with the phone locked, and the G2's link, microphone and LC3
-decoder. A debug build shows a test alert on a G2 from the computer:
+voice's WebRTC, the closing tone, an alert arriving with the phone locked, and the G2's link,
+microphone and LC3 decoder. A debug build shows a test alert on a G2 from the computer:
 `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --es text "'The gate is open.'"`;
 `--ei hold 5` instead holds the G2 for five minutes, to see whether the link stays up;
 `--ez menu true` opens the menu as "open Jarvis" would; `--ei listen 5` logs, for five minutes,
