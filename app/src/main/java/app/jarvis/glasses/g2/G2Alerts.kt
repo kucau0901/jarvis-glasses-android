@@ -155,7 +155,8 @@ class G2Alerts(
 
   /** Jarvis's answers written for the display, as text. */
   private class ShownBrain(private val client: JarvisClient) : Brain {
-    override suspend fun transcribe(wav: ByteArray) = client.transcribe(wav).also { Log.i(TAG, "heard: \"$it\"") }
+    // How much was heard, never the words: the microphone hears whoever is nearby.
+    override suspend fun transcribe(wav: ByteArray) = client.transcribe(wav).also { Log.i(TAG, "heard: ${it.length} characters") }
 
     override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, onEvent: suspend (VoiceEvent) -> Unit) =
         client.ask(text, context, photoJpeg, CHARS, onEvent).also { Log.i(TAG, "answer: ${it.text.length} characters, ok ${it.ok}") }
