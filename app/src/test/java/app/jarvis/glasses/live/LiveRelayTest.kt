@@ -157,6 +157,8 @@ class LiveRelayTest {
     // A tool ran before Jarvis's backend found it wasn't said to Jarvis: no notForMe, and no words.
     val r = relay(sent, listOf("""{"type":"result","text":""}"""), said = said)
     r.opened()
+    // Some time in, so that counting the result as Jarvis answering would show.
+    testScheduler.advanceTimeBy(10_000)
     r.onMessage(user("lights down for the film"))
     r.onMessage(delegation("d1"))
     advanceUntilIdle()
@@ -164,8 +166,8 @@ class LiveRelayTest {
     assertTrue(sent.all.isEmpty())
     r.finish()
     assertTrue(said.isEmpty())
-    // Nor does it keep the session open.
-    testScheduler.advanceTimeBy(LiveVoice.UNANSWERED_MS + 1)
+    // Nor does it keep the session open: 20 s from the opening, not from the result.
+    testScheduler.advanceTimeBy(LiveVoice.UNANSWERED_MS - 10_000 + 1)
     assertTrue(r.unanswered(LiveVoice.UNANSWERED_MS))
   }
 
