@@ -1,13 +1,22 @@
 package app.jarvis.glasses.jarvis
 
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -71,6 +80,36 @@ class JarvisClientTest {
     } catch (e: JarvisClient.JarvisException) {
       assertTrue(e.message!!.contains("ended early"))
     }
+  }
+
+  @Test
+  fun aQuestionStoppedBeforeTheAnswerIsHungUpAtOnce() = runBlocking {
+    // Jarvis has the question and is slow to answer; the glasses come off meanwhile.
+    server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+    val asking = launch(Dispatchers.IO) { client.ask("lock the front door", emptyList(), null) {} }
+    assertNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+    // Not when the read times out, two minutes on; and as stopped, not as Jarvis out of reach (that would fail this test).
+    withTimeout(10_000) { asking.cancelAndJoin() }
+  }
+
+  @Test
+  fun anAnswerStoppedHalfWayIsReadNoFurther() = runBlocking {
+    // Padded with a comment: MockWebServer reads the question at the same pace, and it must come in whole.
+    val first = ": ${" ".repeat(500)}\ndata: {\"type\":\"progress\",\"text\":\"Locking\"}\n\n"
+    server.enqueue(
+        MockResponse()
+            .setHeader("Content-Type", "text/event-stream")
+            .setBody(first + "data: {\"type\":\"result\",\"text\":\"Locked.\",\"ok\":true}\n\n")
+            // The first frame at once, the rest three seconds later.
+            .throttleBody(first.length.toLong(), 3, TimeUnit.SECONDS),
+    )
+    val seen = Channel<VoiceEvent>(Channel.UNLIMITED)
+    val asking = launch(Dispatchers.IO) { client.ask("lock the front door", emptyList(), null) { seen.send(it) } }
+    assertEquals(VoiceEvent.Progress("Locking"), withTimeout(10_000) { seen.receive() })
+    withTimeout(10_000) { asking.cancelAndJoin() }
+    // Past when the rest would have come: hung up, it never does.
+    delay(3_500)
+    assertTrue(seen.isEmpty)
   }
 
   @Test

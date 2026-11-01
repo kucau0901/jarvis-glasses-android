@@ -3,7 +3,12 @@ package app.jarvis.glasses.jarvis
 import app.jarvis.glasses.conversation.Brain
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -18,6 +23,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 
 /**
  * The device API of a Jarvis deployment (docs/api.md in the jarvis-voice-agent repository),
@@ -49,7 +55,7 @@ class JarvisClient(
                 .addFormDataPart("options", """{"transcribe":true}""")
                 .build()
         val req = request("/api/v1/voice").post(body).header("Accept", "application/json").build()
-        http.newCall(req).execute().use { res ->
+        exchange(req) { res ->
           val text = res.body?.string().orEmpty()
           if (!res.isSuccessful) throw JarvisException(errorOf(res.code, text))
           val o = SseParser.json.parseToJsonElement(text).jsonObject
@@ -132,7 +138,7 @@ class JarvisClient(
   suspend fun sendDraft(id: String) =
       withContext(Dispatchers.IO) {
         val req = request("/api/google/drafts/send").post(buildJsonObject { put("id", id) }.toString().toRequestBody(JSON)).build()
-        http.newCall(req).execute().use { res ->
+        exchange(req) { res ->
           if (!res.isSuccessful) throw JarvisException(errorOf(res.code, res.body?.string().orEmpty()))
         }
       }
@@ -157,7 +163,7 @@ class JarvisClient(
           if (opening != null) put("opening", buildJsonObject { put("id", opening.id); put("title", opening.title); put("text", opening.text) })
         }
         val req = request("/api/session").post(body.toString().toRequestBody(JSON)).build()
-        http.newCall(req).execute().use { res ->
+        exchange(req) { res ->
           val text = res.body?.string().orEmpty()
           if (!res.isSuccessful) throw JarvisException(errorOf(res.code, text))
           val o = SseParser.json.parseToJsonElement(text).jsonObject
@@ -170,13 +176,13 @@ class JarvisClient(
   suspend fun reportLive(seconds: Int) {
     withContext(Dispatchers.IO) {
       val body = buildJsonObject { put("seconds", seconds) }
-      runCatching { http.newCall(request("/api/v1/usage/live").post(body.toString().toRequestBody(JSON)).build()).execute().close() }
+      runCatching { exchange(request("/api/v1/usage/live").post(body.toString().toRequestBody(JSON)).build()) {} }
     }
   }
 
   private suspend fun stream(path: String, body: JsonObject, onEvent: suspend (JsonObject) -> Unit) {
     val req = request(path).post(body.toString().toRequestBody(JSON)).header("Accept", "text/event-stream").build()
-    http.newCall(req).execute().use { res ->
+    exchange(req) { res ->
       if (!res.isSuccessful) throw JarvisException(errorOf(res.code, res.body?.string().orEmpty()))
       val frames = mutableListOf<JsonObject>()
       val parser = SseParser(frames::add)
@@ -199,8 +205,8 @@ class JarvisClient(
       withContext(Dispatchers.IO) {
         val body = buildJsonObject { put("text", text.take(1000)) }
         val req = request("/api/tts").post(body.toString().toRequestBody(JSON)).build()
-        http.newCall(req).execute().use { res ->
-          if (res.code == 204) return@use null
+        exchange(req) { res ->
+          if (res.code == 204) return@exchange null
           if (!res.isSuccessful) throw JarvisException(errorOf(res.code, res.body?.string().orEmpty()))
           res.body?.bytes()
         }
@@ -209,10 +215,30 @@ class JarvisClient(
   /** Checks the address and token: `GET /api/v1/voice` needs `voice` and answers with the speech settings. */
   suspend fun check() =
       withContext(Dispatchers.IO) {
-        http.newCall(request("/api/v1/voice").get().build()).execute().use { res ->
+        exchange(request("/api/v1/voice").get().build()) { res ->
           if (!res.isSuccessful) throw JarvisException(errorOf(res.code, res.body?.string().orEmpty()))
         }
       }
+
+  /**
+   * [req] sent and its answer read, the call cancelled as soon as the coroutine is: a blocking read
+   * doesn't see cancellation by itself, so a question asked before the glasses came off was read to
+   * its end and answered, with Jarvis never hung up on.
+   */
+  private suspend fun <T> exchange(req: Request, read: suspend (Response) -> T): T = coroutineScope {
+    val call = http.newCall(req)
+    // Undispatched, so it is waiting before the call goes out, even if cancelled already.
+    val watch = launch(start = CoroutineStart.UNDISPATCHED) { try { awaitCancellation() } finally { call.cancel() } }
+    try {
+      call.execute().use { read(it) }
+    } catch (e: IOException) {
+      // The cancelled call's own failure is the cancellation, not Jarvis out of reach.
+      ensureActive()
+      throw e
+    } finally {
+      watch.cancel()
+    }
+  }
 
   internal fun request(path: String): Request.Builder {
     if (!Address.usable(baseUrl())) throw JarvisException("Set your Jarvis address in Settings")

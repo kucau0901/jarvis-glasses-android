@@ -104,7 +104,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
     jobs.clear()
     val w = Work()
     work = w
-    scope.launch {
+    // The app's, not the screen's: leaving Chat mid-answer would hang up on Jarvis, and lose the answer.
+    app.scope.launch {
       var answer: Said? = null
       var kind = ""
       var notice = ""
