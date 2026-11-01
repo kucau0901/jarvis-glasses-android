@@ -170,7 +170,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
       items(said, key = { it.id }) { s -> SaidRow(s, kinds[s.id], read = s.id == read) }
       items(jobs, key = { it.id }) { j -> JobStarted(j) }
       items(drafts, key = { it.id }) { d ->
-        DraftCard(d, onSend = { scope.launch { note = runCatching { app.client.sendDraft(d.id) }.fold({ "Sent." }, { it.message ?: "Not sent" }); drafts.remove(d) } }, onDrop = { drafts.remove(d) })
+        // The app's, not the screen's, as a question is: leaving Chat mid-send would hang up on it.
+        DraftCard(d, onSend = { app.scope.launch { note = runCatching { app.client.sendDraft(d.id) }.fold({ "Sent." }, { it.message ?: "Not sent" }); drafts.remove(d) } }, onDrop = { drafts.remove(d) })
       }
       // A new list each time workRev moves, so the row redraws: the same Work object would be skipped.
       work?.let { w -> item(key = "working") { workRev.let { WorkingRow(w.steps, w.thinking) } } }
