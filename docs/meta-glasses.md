@@ -168,7 +168,8 @@ are having with someone else. With Jarvis 2.8.0 or later:
 
 - Something not said to Jarvis is ignored: nothing answered, nothing done, nothing kept (not in
   Chat, not in your conversation on Jarvis), and the conversation ends with the closing tone.
-- The closing tone means "say Hey Meta, open Jarvis again". It plays whenever listening ends.
+- The closing tone means "say Hey Meta, open Jarvis again". It plays whenever listening ends, a
+  live session hanging up by itself included; not when you stop it or take the glasses off.
 - A follow-up still going at 15 s is taken for someone else talking and never sent; the opening
   question and a reply to an alert may run to 45 s.
 - A photo goes only with the opening question, never with a follow-up.

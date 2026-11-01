@@ -139,7 +139,8 @@ says so (`openMic`), and Jarvis answers only what was said to it.
   ends there.
 - **The closing tone**, three falling notes unlike the opening beep, means the microphone is shut:
   say "Hey Meta, open Jarvis" again to talk. It plays whenever listening ends: silence, "thanks",
-  a follow-up that ran too long, something not said to Jarvis, or follow-ups switched off.
+  a follow-up that ran too long, something not said to Jarvis, follow-ups switched off, or a live
+  session hanging up by itself. Not when you stop it, or take the glasses off.
 - **Follow-ups are short.** After an answer the microphone waits 5 s for you to start. A follow-up
   still going at 15 s is taken for someone else talking: nothing is sent, not even to be turned
   into words, and the conversation ends. Your opening question, or a reply to an alert, may run to
@@ -155,7 +156,8 @@ says so (`openMic`), and Jarvis answers only what was said to it.
   said in the same stretch as your question go with it. When Jarvis finds a request was set off by
   something not said to it, none of it is kept and nothing is said about it. A session ends 20 s
   after Jarvis last spoke or answered, however much is said around you, besides the quiet time
-  and "goodbye".
+  and "goodbye", with the closing tone. A request Jarvis is still working on when it hangs up is
+  finished all the same, and its answer is in Chat.
 - **On a G2** the microphone opens only when you tap, as before, so a follow-up there may run to
   45 s too; something not said to Jarvis gets a short line on the display, and is not kept.
 

@@ -48,6 +48,7 @@ import org.webrtc.audio.JavaAudioDeviceModule
  * microphone hears everyone nearby, so it also closes [UNANSWERED_MS] after Jarvis last spoke or
  * answered, however much is said around it (a TV, people talking). Through the glasses, a Jarvis
  * that knows them is told so, and stays silent unless spoken to ([JarvisClient.liveSession]).
+ * Hanging up by itself, it plays Talk's closing tone ([GlassesAudio.closingCue]).
  */
 class LiveVoice(
     context: Context,
@@ -220,6 +221,7 @@ class LiveVoice(
     } finally {
       // Stopped (Stop, or the glasses taken off) rather than hung up by itself.
       val stopped = !currentCoroutineContext().isActive
+      val wasLive = _state.value == State.LIVE
       watch?.cancel()
       meter?.cancel()
       // Let go first: an alert that comes meanwhile goes to a notification, not into a closing session.
@@ -238,6 +240,9 @@ class LiveVoice(
       runCatching { pc?.close() }
       runCatching { pc?.dispose() }
       runCatching { track?.dispose() }
+      // Hung up by itself after being live: Talk's closing tone, so the wearer knows Jarvis stopped
+      // listening. Not when stopped: the glasses came off, or Stop was pressed.
+      if (wasLive && !stopped) runCatching { audio.closingCue() }
       audio.close()
       if (openedAt > 0) scope.launch { client.reportLive(((System.currentTimeMillis() - openedAt) / 1000).toInt()) }
       // Before the session reads as off, so a Talk right after it starts from all of it.
