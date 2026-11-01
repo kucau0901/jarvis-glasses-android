@@ -69,6 +69,28 @@ class JarvisClientTest {
     assertEquals("what's on today", body["text"]!!.jsonPrimitive.content)
     assertEquals("assistant", body["context"]!!.jsonArray[0].jsonObject["role"]!!.jsonPrimitive.content)
     assertTrue(body["images"]!!.jsonArray[0].jsonPrimitive.content.startsWith("data:image/jpeg;base64,"))
+    // Heard by the glasses' microphone, which hears everyone.
+    assertEquals(true, body["openMic"]!!.jsonPrimitive.content.toBoolean())
+  }
+
+  @Test
+  fun aQuestionNotForJarvisComesBackEmptyAndSaysSo() = runBlocking {
+    server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody("data: {\"type\":\"result\",\"text\":\"\",\"ok\":true,\"notForMe\":true}\n\n"))
+    val seen = mutableListOf<VoiceEvent>()
+    val answer = client.ask("and after the break, the weekend weather", emptyList(), null) { seen += it }
+    assertEquals(VoiceEvent.Answer("", true, notForMe = true), answer)
+    assertTrue(seen.none { it is VoiceEvent.Audio })
+  }
+
+  @Test
+  fun onlyASpokenQuestionSaysTheMicrophoneHearsEveryone() {
+    val spoken = JarvisClient.askBody("what's on today", emptyList(), null)
+    assertEquals("true", spoken["openMic"]!!.jsonPrimitive.content)
+    assertEquals("audio", spoken["reply"]!!.jsonPrimitive.content)
+    // The G2's, asked for its display: Jarvis assumes it already.
+    val shown = JarvisClient.askBody("what's on today", emptyList(), null, chars = 200)
+    assertNull(shown["openMic"])
+    assertEquals("200", shown["chars"]!!.jsonPrimitive.content)
   }
 
   @Test

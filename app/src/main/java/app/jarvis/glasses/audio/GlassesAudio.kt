@@ -124,7 +124,7 @@ class GlassesAudio(context: Context) : Ears, Mouth {
   }
 
   @SuppressLint("MissingPermission") // checked below
-  override suspend fun listen(startTimeoutMs: Long): ByteArray? =
+  override suspend fun listen(startTimeoutMs: Long, maxMs: Long): ByteArray? =
       withContext(Dispatchers.IO) {
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
           return@withContext null
@@ -140,7 +140,7 @@ class GlassesAudio(context: Context) : Ears, Mouth {
           return@withContext null
         }
         record.setPreferredDevice(input)
-        val gate = SpeechGate(RATE, startTimeoutMs)
+        val gate = SpeechGate(RATE, startTimeoutMs, maxMs = maxMs)
         val pcm = ByteArrayOutputStream()
         val buf = ShortArray(RATE / 50) // 20 ms
         val bytes = ByteArray(buf.size * 2)
@@ -178,6 +178,14 @@ class GlassesAudio(context: Context) : Ears, Mouth {
     val tone = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 70)
     tone.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
     delay(220)
+    tone.release()
+  }
+
+  // Three falling notes, about 0.4 s: unlike the opening beep, and heard as an ending.
+  override suspend fun closingCue() {
+    val tone = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 60)
+    tone.startTone(ToneGenerator.TONE_CDMA_CALLDROP_LITE, 400)
+    delay(500)
     tone.release()
   }
 

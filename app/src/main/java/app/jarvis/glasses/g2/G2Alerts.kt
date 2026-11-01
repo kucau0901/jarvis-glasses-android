@@ -147,6 +147,9 @@ class G2Alerts(
     // Listening is shown once the wearer taps (G2Ears).
     override suspend fun cue() = Unit
 
+    // What Jarvis said last stays up, and a tap talks again (converse).
+    override suspend fun closingCue() = Unit
+
     // No speaker: answers are asked for as text (ShownBrain), so there is nothing to play.
     override suspend fun play(audio: ByteArray) = Unit
 
@@ -159,7 +162,7 @@ class G2Alerts(
     override suspend fun transcribe(wav: ByteArray) = client.transcribe(wav).also { Log.i(TAG, "heard: ${it.length} characters") }
 
     override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, onEvent: suspend (VoiceEvent) -> Unit) =
-        client.ask(text, context, photoJpeg, CHARS, onEvent).also { Log.i(TAG, "answer: ${it.text.length} characters, ok ${it.ok}") }
+        client.ask(text, context, photoJpeg, CHARS, onEvent).also { Log.i(TAG, "answer: ${it.text.length} characters, ok ${it.ok}, not for Jarvis ${it.notForMe}") }
 
     override suspend fun speech(text: String): ByteArray? = null
   }

@@ -15,13 +15,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConversationTest {
-  /** Says each of [heard] in turn, then nothing (null: nobody spoke). */
+  /** Says each of [heard] in turn, then nothing (null: nobody spoke, or too long to be a question). */
   private class FakeEars(vararg heard: String) : Ears {
     val queue = ArrayDeque(heard.toList())
     val waits = mutableListOf<Long>()
+    val caps = mutableListOf<Long>()
 
-    override suspend fun listen(startTimeoutMs: Long): ByteArray? {
+    override suspend fun listen(startTimeoutMs: Long, maxMs: Long): ByteArray? {
       waits += startTimeoutMs
+      caps += maxMs
       return queue.removeFirstOrNull()?.toByteArray()
     }
   }
@@ -30,14 +32,23 @@ class ConversationTest {
     val played = mutableListOf<String>()
     val said = mutableListOf<String>()
     var closed = false
+    /** The tones and the closing, in order. */
+    val log = mutableListOf<String>()
 
     override suspend fun open() = glasses
 
     override fun close() {
       closed = true
+      log += "close"
     }
 
-    override suspend fun cue() = Unit
+    override suspend fun cue() {
+      log += "cue"
+    }
+
+    override suspend fun closingCue() {
+      log += "closing"
+    }
 
     override suspend fun play(audio: ByteArray) {
       played += String(audio)
@@ -48,13 +59,15 @@ class ConversationTest {
     }
   }
 
-  private class FakeBrain(private val withAudio: Boolean = true) : Brain {
+  /** Answers each question, but [notForMe] as Jarvis does what wasn't said to it: no audio, and [shown] (the G2's line) or no words. */
+  private class FakeBrain(private val withAudio: Boolean = true, private val notForMe: Set<String> = emptySet(), private val shown: String = "") : Brain {
     val asked = mutableListOf<Triple<String, List<Turn>, ByteArray?>>()
 
     override suspend fun transcribe(wav: ByteArray) = String(wav)
 
     override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, onEvent: suspend (VoiceEvent) -> Unit): VoiceEvent.Answer {
       asked += Triple(text, context, photoJpeg)
+      if (text in notForMe) return VoiceEvent.Answer(shown, true, notForMe = true).also { onEvent(it) }
       val answer = VoiceEvent.Answer("answer to $text", true)
       onEvent(VoiceEvent.Progress("Checking"))
       onEvent(answer)
@@ -87,7 +100,8 @@ class ConversationTest {
       followUps: Boolean = true,
       photo: ByteArray? = byteArrayOf(7),
       memory: Memory = FakeMemory(),
-  ) = Conversation(this, ears, mouth, { photo }, brain, memory, followUps = { followUps })
+      eyes: Eyes = Eyes { photo },
+  ) = Conversation(this, ears, mouth, eyes, brain, memory, followUps = { followUps })
 
   @Test
   fun aQuestionIsAnsweredAndAFollowUpIsListenedFor() = runTest {
@@ -103,8 +117,114 @@ class ConversationTest {
     assertEquals(listOf(Turn.user("what's on today"), Turn.jarvis("answer to what's on today")), brain.asked[1].second)
     assertEquals(listOf("clip:what's on today", "clip:and tomorrow"), mouth.played)
     assertEquals(listOf(Conversation.firstWaitMs, Conversation.followUpWaitMs, Conversation.followUpWaitMs), ears.waits)
+    assertEquals(5_000L, Conversation.followUpWaitMs)
+    // The opening question may run long; a follow-up, the microphone open by itself, not.
+    assertEquals(listOf(Conversation.maxMs, Conversation.followUpMaxMs, Conversation.followUpMaxMs), ears.caps)
+    assertEquals(listOf(45_000L, 15_000L), listOf(Conversation.maxMs, Conversation.followUpMaxMs))
+    // The closing tone once, after the last listening and before the glasses are let go.
+    assertEquals(listOf("cue", "cue", "cue", "closing", "close"), mouth.log)
     assertTrue(mouth.closed)
     assertEquals(Conversation.Status.IDLE, c.status.value)
+  }
+
+  @Test
+  fun whatWasNotSaidToJarvisIsNeitherKeptNorSaidAndEndsIt() = runTest {
+    // A TV heard in the follow-up: Jarvis says it wasn't for it.
+    val tv = "and after the break, the weekend weather"
+    val ears = FakeEars("what's on today", tv, "this is never listened for")
+    val mouth = FakeMouth()
+    val brain = FakeBrain(notForMe = setOf(tv))
+    val memory = FakeMemory()
+    val c = conversation(ears, mouth, brain, memory = memory)
+    c.start()
+    advanceUntilIdle()
+
+    assertEquals(listOf("what's on today", tv), brain.asked.map { it.first })
+    // Only the question that was for Jarvis is kept: nothing of the TV's reaches Chat or Jarvis's conversation.
+    assertEquals(listOf(listOf(Turn.user("what's on today"), Turn.jarvis("answer to what's on today"))), memory.kept.map { it.first })
+    assertEquals(listOf("clip:what's on today"), mouth.played)
+    assertTrue(mouth.said.isEmpty())
+    // No more listening: the closing tone says to open Jarvis again.
+    assertEquals(2, ears.waits.size)
+    assertEquals(listOf("cue", "cue", "closing", "close"), mouth.log)
+    assertTrue(c.note.value.isNotEmpty())
+    assertFalse(c.note.value.contains("weather"))
+  }
+
+  @Test
+  fun anOpeningQuestionNotForJarvisKeepsNothing() = runTest {
+    val heard = "can you pass me the blue folder"
+    val memory = FakeMemory()
+    val mouth = FakeMouth()
+    conversation(FakeEars(heard, "and tomorrow"), mouth, FakeBrain(notForMe = setOf(heard)), memory = memory).start()
+    advanceUntilIdle()
+    assertTrue(memory.kept.isEmpty())
+    assertTrue(mouth.said.isEmpty() && mouth.played.isEmpty())
+  }
+
+  @Test
+  fun onTheG2WhatWasNotForJarvisShowsItsLineButIsNotKept() = runTest {
+    val heard = "see you on Tuesday then"
+    val memory = FakeMemory()
+    val lens = FakeMouth()
+    val ears = FakeEars(heard, "never asked")
+    conversation(ears, lens, FakeBrain(withAudio = false, notForMe = setOf(heard), shown = "That wasn't for me."), memory = memory).start()
+    advanceUntilIdle()
+    assertEquals(listOf("That wasn't for me."), lens.said)
+    assertTrue(memory.kept.isEmpty())
+    assertEquals(1, ears.waits.size)
+  }
+
+  @Test
+  fun aReplyToAnAlertNotForJarvisLeavesTheAlertUnreplied() = runTest {
+    val alert = Alert("a1", "Office", "Leave in ten minutes.", speak = true, urgent = false)
+    val heard = "two sugars please"
+    val memory = FakeMemory()
+    conversation(FakeEars(heard), FakeMouth(), FakeBrain(notForMe = setOf(heard)), memory = memory).start(alert)
+    advanceUntilIdle()
+    assertTrue(memory.kept.isEmpty())
+  }
+
+  @Test
+  fun theClosingToneIsPlayedHoweverTheListeningEnds() = runTest {
+    // Nobody spoke.
+    FakeMouth().also { conversation(FakeEars(), it, FakeBrain()).start(); advanceUntilIdle(); assertEquals(listOf("cue", "closing", "close"), it.log) }
+    // A closing word.
+    FakeMouth().also { conversation(FakeEars("dah"), it, FakeBrain()).start(); advanceUntilIdle(); assertEquals(listOf("cue", "closing", "close"), it.log) }
+    // One answer, no follow-ups.
+    FakeMouth().also { conversation(FakeEars("hello"), it, FakeBrain(), followUps = false).start(); advanceUntilIdle(); assertEquals(listOf("cue", "closing", "close"), it.log) }
+    // Jarvis out of reach: said, then the tone.
+    val failing =
+        object : Brain by FakeBrain() {
+          override suspend fun transcribe(wav: ByteArray): String = throw java.io.IOException("offline")
+        }
+    FakeMouth().also {
+      conversation(FakeEars("hello"), it, failing).start()
+      advanceUntilIdle()
+      assertEquals(listOf("I couldn't reach Jarvis just now."), it.said)
+      assertEquals(listOf("cue", "closing", "close"), it.log)
+    }
+  }
+
+  @Test
+  fun noClosingToneWhenTheMicrophoneNeverOpenedOrTheGlassesCameOff() = runTest {
+    val notOpened = FakeMouth(glasses = false)
+    conversation(FakeEars("hello"), notOpened, FakeBrain()).start()
+    advanceUntilIdle()
+    assertFalse("closing" in notOpened.log)
+
+    val slowEars =
+        Ears { _, _ ->
+          kotlinx.coroutines.delay(5_000)
+          "hello".toByteArray()
+        }
+    val takenOff = FakeMouth()
+    val c = conversation(slowEars, takenOff, FakeBrain())
+    c.start()
+    testScheduler.advanceTimeBy(1_000)
+    c.stop()
+    advanceUntilIdle()
+    assertEquals(listOf("cue", "close"), takenOff.log)
   }
 
   @Test
@@ -130,6 +250,28 @@ class ConversationTest {
     advanceUntilIdle()
     assertNotNull(brain.asked[0].third)
     assertNull(brain.asked[1].third)
+  }
+
+  @Test
+  fun onlyTheOpeningQuestionCarriesAPhoto() = runTest {
+    var taken = 0
+    val eyes = Eyes { taken++; byteArrayOf(7) }
+    // Someone else's "what's this?" in the follow-up, or after an alert: no photo is even taken.
+    val brain = FakeBrain()
+    conversation(FakeEars("who won the match", "what's this?", "apa ni"), FakeMouth(), brain, eyes = eyes).start()
+    advanceUntilIdle()
+    assertEquals(3, brain.asked.size)
+    assertTrue(brain.asked.all { it.third == null })
+    val replied = FakeBrain()
+    conversation(FakeEars("what's that?"), FakeMouth(), replied, eyes = eyes).start(Alert("a1", "Front door", "Someone is at the door.", speak = true, urgent = false))
+    advanceUntilIdle()
+    assertNull(replied.asked.single().third)
+    assertEquals(0, taken)
+    // After the launch phrase heard again, the question is still the opening one.
+    val opened = FakeBrain()
+    conversation(FakeEars("Hey Meta, open Jarvis", "what's this?"), FakeMouth(), opened, eyes = eyes).start()
+    advanceUntilIdle()
+    assertNotNull(opened.asked.single().third)
   }
 
   @Test
@@ -257,9 +399,27 @@ class ConversationTest {
   @Test
   fun theLaunchPhraseSaidAgainIsNotAsked() = runTest {
     val brain = FakeBrain()
-    conversation(FakeEars("How are you?", "Hi Meta, open Jarvis.", "Okay.", "what's the time"), FakeMouth(), brain).start()
+    conversation(FakeEars("How are you?", "Hi Meta, open Jarvis.", "what's the time"), FakeMouth(), brain).start()
     advanceUntilIdle()
     assertEquals(listOf("How are you?", "what's the time"), brain.asked.map { it.first })
+  }
+
+  @Test
+  fun aLaunchPhraseOrAnOkayIsListenedPastOnlyOncePerAnswer() = runTest {
+    // Each answer allows one: "okay" after each is fine.
+    val brain = FakeBrain()
+    conversation(FakeEars("How are you?", "Okay.", "and tomorrow?", "okay", "and Friday?"), FakeMouth(), brain).start()
+    advanceUntilIdle()
+    assertEquals(listOf("How are you?", "and tomorrow?", "and Friday?"), brain.asked.map { it.first })
+    // Two in a row (a TV saying "okay", "alright") end it, with nothing asked.
+    val ears = FakeEars("How are you?", "Hi Meta, open Jarvis.", "Okay.", "what's the time")
+    val mouth = FakeMouth()
+    val twice = FakeBrain()
+    conversation(ears, mouth, twice).start()
+    advanceUntilIdle()
+    assertEquals(listOf("How are you?"), twice.asked.map { it.first })
+    assertEquals(3, ears.waits.size)
+    assertEquals("closing", mouth.log.dropLast(1).last())
   }
 
   @Test
