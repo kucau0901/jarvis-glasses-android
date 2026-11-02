@@ -166,6 +166,11 @@ class Hub(private val client: JarvisClient) {
     post<JsonObject>("/api/hub/proposals/answer", buildJsonObject { put("id", id); put("answer", answer) })
   }
 
+  /** Not now ("later": no look for three hours) or Less of this ("less"), on what a look around said, by its id. */
+  suspend fun lookAnswer(id: String, answer: String) {
+    post<JsonObject>("/api/hub/looks/answer", buildJsonObject { put("id", id); put("answer", answer) })
+  }
+
   // Jobs and routines (device API, also open to a person)
 
   suspend fun jobs(): List<Job> = get<Jobs>("/api/v1/jobs").jobs

@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -73,6 +74,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
   var workRev by remember { mutableIntStateOf(0) }
   var read by remember { mutableStateOf<String?>(null) }
   val jobs = remember { mutableStateListOf<Named>() }
+  // Looks answered here, by id: what was done, shown in place of their buttons.
+  val looked = remember { mutableStateMapOf<String, String>() }
   val busy = work != null
   val list = rememberLazyListState()
   val person = app.prefs.token.startsWith("jss1_")
@@ -167,7 +170,19 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
         }
       }
       if (said.isEmpty()) item { Text("Ask Jarvis anything. Answers spoken in the glasses show up here too when you're signed in.", style = MaterialTheme.typography.bodyMedium, color = h.dim) }
-      items(said, key = { it.id }) { s -> SaidRow(s, kinds[s.id], read = s.id == read) }
+      items(said, key = { it.id }) { s ->
+        // A look's two answers, signed in as a person: the route is a person's (Jarvis's /api/hub/looks/answer).
+        val onLook: ((String) -> Unit)? =
+            if (!person) null
+            else { answer ->
+              scope.launch {
+                runCatching { app.hub.lookAnswer(s.id, answer) }
+                    .onSuccess { looked[s.id] = if (answer == "later") "Quiet for three hours." else "Noted: less of this." }
+                    .onFailure { note = it.message ?: "Not answered" }
+              }
+            }
+        SaidRow(s, kinds[s.id], read = s.id == read, looked = looked[s.id], onLook = onLook)
+      }
       items(jobs, key = { it.id }) { j -> JobStarted(j) }
       items(drafts, key = { it.id }) { d ->
         // The app's, not the screen's, as a question is: leaving Chat mid-send would hang up on it.
@@ -200,7 +215,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
  * answers are drawn as the web app draws them; a limit is a quiet notice, a failure says so.
  */
 @Composable
-private fun SaidRow(s: Said, kind: String?, read: Boolean) {
+private fun SaidRow(s: Said, kind: String?, read: Boolean, looked: String? = null, onLook: ((String) -> Unit)? = null) {
   val h = Hark.colors
   val mine = s.role == "user"
   if (kind == "limit") {
@@ -220,6 +235,14 @@ private fun SaidRow(s: Said, kind: String?, read: Boolean) {
   }
   if (read) Text("Read", style = MaterialTheme.typography.labelSmall, color = h.dim, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth().padding(top = 3.dp, end = 6.dp))
   s.links?.forEach { l -> Box(Modifier.padding(top = 6.dp)) { LinkCard(l) } }
+  // What a look around said: Not now (no look for three hours) or Less of this, as the web app has them (src/app/look.ts there).
+  if (s.look && !mine && onLook != null) {
+    if (looked != null) Text(looked, style = MaterialTheme.typography.labelSmall, color = h.dim, modifier = Modifier.padding(top = 6.dp, start = 6.dp))
+    else Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      HarkButton("Not now", solid = false) { onLook("later") }
+      HarkButton("Less of this", solid = false) { onLook("less") }
+    }
+  }
 }
 
 /** A background job this question started, as the web app shows one: its result comes later, in Jobs. */

@@ -11,6 +11,7 @@ import okhttp3.WebSocketListener
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -89,6 +90,14 @@ class EventsTest {
     assertEquals(true, alert("""{"id":"a2","text":"Leave now","speak":true}""").talk)
     assertEquals(false, alert("""{"id":"a3","text":"A note","speak":false}""").talk)
     assertEquals("Leave now", alert("""{"id":"a2","title":"Jarvis","text":"Leave now","speak":true}""").said)
+  }
+
+  @Test
+  fun aLookAroundsAlertSaysItIsOne() {
+    fun alert(json: String) = Alert.fromMessage(parse("data: {\"type\":\"alert\",\"alert\":$json}").single())!!
+    assertTrue(alert("""{"id":"l1","title":"Anything worth knowing","text":"Your 3 PM clashes.","speak":true,"source":"routine","routine":"rl","look":true}""").look)
+    // Any other alert, and one from an older Jarvis, is not.
+    assertFalse(alert("""{"id":"l2","title":"Office","text":"Leave in ten minutes.","speak":true,"source":"routine","routine":"r1"}""").look)
   }
 
   @Test

@@ -75,7 +75,7 @@ class ChatLog(
    */
   fun arrived(alert: Alert) = add(listOf(said(alert, now())))
 
-  private fun said(a: Alert, at: Long) = Said(a.id, at, "assistant", a.text, alert = AlertFrom(a.source, a.title), skill = a.skill)
+  private fun said(a: Alert, at: Long) = Said(a.id, at, "assistant", a.text, alert = AlertFrom(a.source, a.title), skill = a.skill, look = a.look)
 
   /** Emptied here and, signed in as a person, on every screen of theirs. */
   suspend fun clear() {

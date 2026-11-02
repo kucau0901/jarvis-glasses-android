@@ -56,6 +56,14 @@ class ChatLogTest {
   }
 
   @Test
+  fun aLookAroundsAlertIsALookInChatAsItArrives() = runTest {
+    val log = log(Jarvis())
+    log.arrived(Alert("al00003", "Anything worth knowing", "Your 3 PM clashes.", speak = true, urgent = false, source = "routine", look = true))
+    advanceUntilIdle()
+    assertTrue("its buttons show at once, before Jarvis's own copy is read back", log.said.value.single().look)
+  }
+
+  @Test
   fun aBotsAlertKeepsItsSkillAndIsToldAsItsOwnWords() = runTest {
     val j = Jarvis()
     val log = log(j)

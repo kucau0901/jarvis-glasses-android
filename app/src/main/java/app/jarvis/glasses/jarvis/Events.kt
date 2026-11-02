@@ -65,6 +65,8 @@ data class Alert(
     val convo: String? = null,
     /** The bot that said it, an outside service added as a skill: its answer, or a message of its own. An older Jarvis sends none. */
     val skill: SkillFrom? = null,
+    /** What a look around said: Chat offers Not now and Less of this under it. An older Jarvis sends none. */
+    val look: Boolean = false,
 ) {
   /** How it reads, and is said: "Title: text", as the web app has it; just the text under "Jarvis". */
   val said: String
@@ -84,7 +86,7 @@ data class Alert(
       if (text.isEmpty()) return null
       val speak = a.bool("speak") ?: true
       val skill = (a["skill"] as? JsonObject)?.let { s -> s.str("name")?.let { SkillFrom(s.str("id").orEmpty(), it, s.str("about")) } }
-      return Alert(id, a.str("title") ?: "Jarvis", text, speak, a.bool("urgent") ?: false, a.bool("talk") ?: speak, a.str("source").orEmpty(), a.str("convo"), skill)
+      return Alert(id, a.str("title") ?: "Jarvis", text, speak, a.bool("urgent") ?: false, a.bool("talk") ?: speak, a.str("source").orEmpty(), a.str("convo"), skill, look = a.bool("look") == true)
     }
   }
 }

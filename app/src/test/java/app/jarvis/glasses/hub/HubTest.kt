@@ -352,4 +352,26 @@ class HubTest {
     assertEquals("Archive", p.open.single().verb)
     assertEquals("when you get home", p.later.single().`when`)
   }
+
+  @Test
+  fun aLookIsAnsweredByItsId() = runBlocking {
+    // Jarvis's kept copy says it is a look; any other row is not.
+    server.enqueue(
+        MockResponse()
+            .setBody(
+                """{"said":[{"id":"al00003","at":1,"role":"assistant","text":"Your 3 PM clashes.","routine":{"id":"rl","name":"Anything worth knowing"},"look":true},
+                  {"id":"al00004","at":2,"role":"assistant","text":"Bins.","routine":{"id":"r1","name":"Bins"}}]}"""))
+    val (look, other) = hub.conversation()
+    assertTrue(look.look)
+    assertFalse(other.look)
+    server.takeRequest()
+    server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+    hub.lookAnswer("al00003", "later")
+    val req = server.takeRequest()
+    assertEquals("POST", req.method)
+    assertEquals("/api/hub/looks/answer", req.path)
+    val b = Json.parseToJsonElement(req.body.readUtf8()).jsonObject
+    assertEquals("al00003", b["id"]!!.jsonPrimitive.content)
+    assertEquals("later", b["answer"]!!.jsonPrimitive.content)
+  }
 }

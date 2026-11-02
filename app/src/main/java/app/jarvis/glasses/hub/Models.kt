@@ -152,6 +152,8 @@ data class Said(
     val links: List<Link>? = null,
     val job: Named? = null,
     val routine: Named? = null,
+    /** What a look around said (lib/notice.ts in jarvis-voice-agent): answered with Not now or Less of this. Only Jarvis says this. */
+    val look: Boolean = false,
     /** Any other alert that said it: where from, and its title. Only Jarvis says this. */
     val alert: AlertFrom? = null,
     /** The bot that said it, an outside service added as a skill; or Jarvis's answer to its question. Only Jarvis says this. */
