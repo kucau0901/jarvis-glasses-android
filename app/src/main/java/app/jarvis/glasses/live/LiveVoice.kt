@@ -13,12 +13,15 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
@@ -27,6 +30,7 @@ import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RTCStatsReport
 import org.webrtc.RtpReceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
@@ -40,7 +44,11 @@ import org.webrtc.audio.JavaAudioDeviceModule
  * failure so the caller can fall back to a push-to-talk conversation.
  *
  * It bills by the minute, so it closes itself after [quietMs] with nobody speaking, and at most
- * [WORKING_MS] into a slow answer, as the web app does (src/app/quiet.ts there).
+ * [WORKING_MS] into a slow answer, as the web app does (src/app/quiet.ts there). The glasses'
+ * microphone hears everyone nearby, so it also closes [UNANSWERED_MS] after Jarvis last spoke or
+ * answered, however much is said around it (a TV, people talking). Through the glasses, a Jarvis
+ * that knows them is told so, and stays silent unless spoken to ([JarvisClient.liveSession]).
+ * Hanging up by itself, it plays Talk's closing tone ([GlassesAudio.closingCue]).
  */
 class LiveVoice(
     context: Context,
@@ -60,10 +68,15 @@ class LiveVoice(
   /** Why the last session couldn't open, if it couldn't. */
   val note: StateFlow<String> = _note
 
+  private val _voices = MutableStateFlow(Voices())
+  /** How loud each side is while a session is live, about ten times a second, for the wave. */
+  val voices: StateFlow<Voices> = _voices
+
   private var job: Job? = null
   private var factory: PeerConnectionFactory? = null
-  // The open session's `oai-events` channel, for an alert said into it ([tell]).
+  // The open session's `oai-events` channel and relay, for an alert said into it ([tell]).
   @Volatile private var channel: DataChannel? = null
+  @Volatile private var openRelay: LiveRelay? = null
   // What to send as the channel opens: with an opening, the event that has Jarvis say the alert. Read on WebRTC's thread.
   @Volatile private var first: String? = null
 
@@ -88,7 +101,9 @@ class LiveVoice(
   /** An alert said into the session that is open, as the web app does: false when none is. */
   fun tell(alert: Alert): Boolean {
     val c = channel?.takeIf { it.state() == DataChannel.State.OPEN } ?: return false
-    return c.send(DataChannel.Buffer(ByteBuffer.wrap(LiveRelay.say(alert.said).toByteArray()), false))
+    val sent = c.send(DataChannel.Buffer(ByteBuffer.wrap(LiveRelay.say(alert.said).toByteArray()), false))
+    if (sent) openRelay?.telling()
+    return sent
   }
 
   fun stop() {
@@ -102,6 +117,9 @@ class LiveVoice(
     var track: AudioTrack? = null
     var relay: LiveRelay? = null
     var openedAt = 0L
+    // Both stop before the connection is closed: stats asked of a disposed one crash natively.
+    var watch: Job? = null
+    var meter: Job? = null
     try {
       if (!audio.open()) return onFail("Couldn't open the microphone and speaker")
       val f = factory()
@@ -129,7 +147,8 @@ class LiveVoice(
       // GPT-Live carries every session event on a channel with this exact label.
       val channel = peer.createDataChannel("oai-events", DataChannel.Init())
       val r = LiveRelay(scope, client::delegate, send = { text ->
-        channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray()), false))
+        // Its work can outlive the session, and a closed channel takes nothing.
+        runCatching { channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray()), false)) }
       }, onSaid = onSaid)
       r.seed(history)
       relay = r
@@ -143,13 +162,18 @@ class LiveVoice(
                 DataChannel.State.OPEN -> {
                   Log.i(TAG, "live")
                   this@LiveVoice.channel = channel
+                  openRelay = r
                   r.opened()
                   // Not before: GPT-Live drops what is sent into a channel that isn't open yet.
-                  first?.let { channel.send(DataChannel.Buffer(ByteBuffer.wrap(it.toByteArray()), false)) }
+                  first?.let {
+                    r.telling()
+                    channel.send(DataChannel.Buffer(ByteBuffer.wrap(it.toByteArray()), false))
+                  }
                   _state.value = State.LIVE
                 }
                 DataChannel.State.CLOSED -> {
                   this@LiveVoice.channel = null
+                  openRelay = null
                   ended.complete(Unit)
                 }
                 else -> Unit
@@ -168,38 +192,83 @@ class LiveVoice(
       // Everything in one offer: the Worker forwards it once.
       withTimeoutOrNull(3_000) { gathered.await() }
       Log.i(TAG, "offer ready, asking Jarvis for a session")
-      val answer = client.liveSession(peer.localDescription.description, history, opening)
+      val answer = client.liveSession(peer.localDescription.description, history, opening, glasses = audio.onGlasses())
       // Before the answer is set: the channel can open only after it.
       first = answer.first
       peer.setRemote(SessionDescription(SessionDescription.Type.ANSWER, answer.sdp))
       openedAt = System.currentTimeMillis()
 
-      val watch = scope.launch {
+      watch = scope.launch {
         while (isActive) {
           delay(1_000)
           val quiet = System.currentTimeMillis() - r.lastActivity
-          if ((!r.working && quiet > quietMs()) || quiet > WORKING_MS || r.saidGoodbye()) ended.complete(Unit)
+          if ((!r.working && quiet > quietMs()) || quiet > WORKING_MS || r.saidGoodbye() || r.unanswered(UNANSWERED_MS)) ended.complete(Unit)
+        }
+      }
+      meter = scope.launch {
+        while (isActive) {
+          delay(METER_MS)
+          // A report can come back after the session ended: it must not move the next one's wave.
+          peer.getStats { report -> if (_state.value != State.OFF) _voices.value = heard(report, _voices.value, r.working) }
         }
       }
       ended.await()
-      watch.cancel()
       Log.i(TAG, "ended after ${(System.currentTimeMillis() - openedAt) / 1000} s")
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
       onFail(e.message ?: "Live voice couldn't start")
     } finally {
+      // Stopped (Stop, or the glasses taken off) rather than hung up by itself.
+      val stopped = !currentCoroutineContext().isActive
+      val wasLive = _state.value == State.LIVE
+      watch?.cancel()
+      meter?.cancel()
+      // Let go first: an alert that comes meanwhile goes to a notification, not into a closing session.
+      val open = channel
       channel = null
-      relay?.stop()
+      openRelay = null
+      // Ended on GPT-Live's side at once, not when it notices the connection gone: it bills by the minute.
+      open?.let { c ->
+        if (runCatching { c.send(DataChannel.Buffer(ByteBuffer.wrap(LiveRelay.CLOSE.toByteArray()), false)) }.getOrDefault(false)) {
+          withContext(NonCancellable) { withTimeoutOrNull(300) { while (c.bufferedAmount() > 0) delay(20) } }
+        }
+      }
+      // Only then is Jarvis's work cut short. Hung up by itself (quiet, or a slow answer), the session
+      // lets Jarvis finish: what it was asked to do is done, and its answer kept ([LiveRelay.finish]).
+      if (stopped) relay?.stop()
       runCatching { pc?.close() }
       runCatching { pc?.dispose() }
       runCatching { track?.dispose() }
+      // Hung up by itself after being live: Talk's closing tone, so the wearer knows Jarvis stopped
+      // listening. Not when stopped: the glasses came off, or Stop was pressed.
+      if (wasLive && !stopped) runCatching { audio.closingCue() }
       audio.close()
       if (openedAt > 0) scope.launch { client.reportLive(((System.currentTimeMillis() - openedAt) / 1000).toInt()) }
       // Before the session reads as off, so a Talk right after it starts from all of it.
       relay?.finish()
+      _voices.value = Voices()
       _state.value = State.OFF
     }
+  }
+
+  /** The two voices in a stats [report]: the microphone's as sent ("media-source"), Jarvis's as received ("inbound-rtp"). */
+  private fun heard(report: RTCStatsReport, before: Voices, thinking: Boolean): Voices {
+    var user = 0.0
+    var agent = 0.0
+    for (s in report.statsMap.values) {
+      if (s.members["kind"] != "audio") continue
+      val level = (s.members["audioLevel"] as? Number)?.toDouble() ?: continue
+      when (s.type) {
+        "media-source" -> user = maxOf(user, level)
+        "inbound-rtp" -> agent = maxOf(agent, level)
+      }
+    }
+    return Voices(
+        VoiceLevel.smooth(before.user, VoiceLevel.peakLoudness(user)),
+        VoiceLevel.smooth(before.agent, VoiceLevel.peakLoudness(agent)),
+        thinking,
+    )
   }
 
   private fun factory(): PeerConnectionFactory =
@@ -219,6 +288,9 @@ class LiveVoice(
     private const val TAG = "LiveVoice"
     const val QUIET_MS = 30_000L
     const val WORKING_MS = 120_000L
+    /** How long a session stays open after Jarvis last spoke or answered, whatever it hears meanwhile. */
+    const val UNANSWERED_MS = 20_000L
+    private const val METER_MS = 100L
   }
 }
 

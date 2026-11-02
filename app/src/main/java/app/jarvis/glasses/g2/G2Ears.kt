@@ -6,6 +6,7 @@ import androidx.annotation.RequiresApi
 import app.jarvis.glasses.audio.Lc3Decoder
 import app.jarvis.glasses.audio.SpeechGate
 import app.jarvis.glasses.audio.Wav
+import app.jarvis.glasses.conversation.Conversation
 import app.jarvis.glasses.conversation.Ears
 import java.io.ByteArrayOutputStream
 import kotlin.math.abs
@@ -33,6 +34,9 @@ class G2Ears(private val link: G2Link, private val screen: G2Screen, private val
   /** The microphone sent nothing at all last time. */
   private var silent = false
 
+  /** Speech was still going at the cap last time, so nothing was sent. */
+  private var tooLong = false
+
   /** The wearer tapped already: the next [listen] opens the microphone at once. */
   @Volatile private var armed = false
 
@@ -40,7 +44,7 @@ class G2Ears(private val link: G2Link, private val screen: G2Screen, private val
     armed = true
   }
 
-  override suspend fun listen(startTimeoutMs: Long): ByteArray? {
+  override suspend fun listen(startTimeoutMs: Long, maxMs: Long): ByteArray? {
     ended = null
     if (!armed) {
       when (awaitReply()) {
@@ -51,8 +55,9 @@ class G2Ears(private val link: G2Link, private val screen: G2Screen, private val
     }
     armed = false
     screen.plain(LISTENING)
-    val wav = record(startTimeoutMs)
-    if (wav != null) screen.plain(THINKING) else if (ended == null) screen.show(if (silent) NO_MIC else NOTHING_HEARD)
+    // A tap opens it every time, so never a follow-up's shorter cap, which is for a microphone that opens by itself.
+    val wav = record(startTimeoutMs, maxOf(maxMs, Conversation.maxMs))
+    if (wav != null) screen.plain(THINKING) else if (ended == null) screen.show(if (silent) NO_MIC else if (tooLong) TOO_LONG else NOTHING_HEARD)
     return wav
   }
 
@@ -74,9 +79,13 @@ class G2Ears(private val link: G2Link, private val screen: G2Screen, private val
     }
   }
 
-  /** One utterance as WAV, or null when nobody spoke within [startTimeoutMs] or it was put away. */
-  private suspend fun record(startTimeoutMs: Long): ByteArray? = coroutineScope {
+  /**
+   * One utterance as WAV, or null when nobody spoke within [startTimeoutMs], speech was still going
+   * at [maxMs], or it was put away.
+   */
+  private suspend fun record(startTimeoutMs: Long, maxMs: Long): ByteArray? = coroutineScope {
     silent = false
+    tooLong = false
     val packets = link.micOn()
     // A swipe down or the page closing stops listening; nothing is sent.
     val watch = launch {
@@ -84,7 +93,7 @@ class G2Ears(private val link: G2Link, private val screen: G2Screen, private val
       ended = End.DISMISSED
       packets.cancel()
     }
-    val gate = SpeechGate(RATE, startTimeoutMs)
+    val gate = SpeechGate(RATE, startTimeoutMs, maxMs = maxMs)
     val pcm = ByteArrayOutputStream()
     var verdict = SpeechGate.Verdict.LISTENING
     var received = 0
@@ -93,7 +102,7 @@ class G2Ears(private val link: G2Link, private val screen: G2Screen, private val
       withContext(Dispatchers.Default) {
         Lc3Decoder(rate = RATE).use { lc3 ->
           // The gate counts time by the sound it is given: when the glasses send none, this ends it.
-          withTimeoutOrNull(startTimeoutMs + 50_000) {
+          withTimeoutOrNull(maxOf(startTimeoutMs, maxMs) + 10_000) {
             while (true) {
               val packet = withTimeoutOrNull(if (received == 0) FIRST_SOUND_MS else 2_000) { packets.receiveCatching().getOrNull() } ?: break
               received++
@@ -115,6 +124,7 @@ class G2Ears(private val link: G2Link, private val screen: G2Screen, private val
       Log.i(TAG, "heard: $verdict after ${received * 50} ms of sound, loudest $loudest")
     }
     silent = received == 0
+    tooLong = verdict == SpeechGate.Verdict.TOO_LONG
     if (verdict == SpeechGate.Verdict.DONE) Wav.wrap(pcm.toByteArray(), RATE) else null
   }
 
@@ -125,6 +135,7 @@ class G2Ears(private val link: G2Link, private val screen: G2Screen, private val
     const val THINKING = "..."
     const val NOTHING_HEARD = "Nothing heard."
     const val NO_MIC = "The glasses' microphone didn't start."
+    const val TOO_LONG = "Too long for a question, so nothing was sent."
     /** How long the microphone may take to start sending. */
     const val FIRST_SOUND_MS = 3_000L
     private const val TAG = "G2"

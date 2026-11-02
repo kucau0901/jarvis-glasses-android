@@ -5,7 +5,9 @@ import kotlin.math.sqrt
 /**
  * Decides, from loudness alone, when someone has started and finished speaking, so a turn needs
  * no touch on the glasses: a question ends at [endSilenceMs] of quiet after speech, and nobody
- * speaking within [startTimeoutMs] ends the turn without sending anything.
+ * speaking within [startTimeoutMs] ends the turn without sending anything. Speech still going
+ * [maxMs] after listening began is too long to be a question (a TV, people talking): that ends the
+ * turn without sending anything too.
  *
  * Speech is a frame louder than both [minLevel] and [noiseRatio] times the room's noise, which is
  * learnt from the quiet frames as it goes. It has to last [minSpeechMs] to count, so a cough or a
@@ -20,13 +22,17 @@ class SpeechGate(
     private val minLevel: Double = 400.0,
     private val noiseRatio: Double = 2.5,
 ) {
-  enum class Verdict { LISTENING, NO_SPEECH, DONE }
+  enum class Verdict { LISTENING, NO_SPEECH, DONE, TOO_LONG }
 
   private var elapsedMs = 0.0
   private var voicedMs = 0.0
   private var silenceMs = 0.0
   private var noise = 0.0
   var heardSpeech = false
+    private set
+
+  /** The last buffer's loudness (RMS, in sample units). */
+  var level = 0.0
     private set
 
   /** Feeds one buffer of 16-bit samples; read [Verdict] after each. */
@@ -37,7 +43,7 @@ class SpeechGate(
       val s = samples[i].toDouble()
       sum += s * s
     }
-    val level = sqrt(sum / count)
+    level = sqrt(sum / count)
     val ms = count * 1000.0 / sampleRate
     elapsedMs += ms
 
@@ -52,6 +58,6 @@ class SpeechGate(
       silenceMs = if (voiced) 0.0 else silenceMs + ms
       if (silenceMs >= endSilenceMs) return Verdict.DONE
     }
-    return if (elapsedMs >= maxMs) (if (heardSpeech) Verdict.DONE else Verdict.NO_SPEECH) else Verdict.LISTENING
+    return if (elapsedMs >= maxMs) (if (heardSpeech) Verdict.TOO_LONG else Verdict.NO_SPEECH) else Verdict.LISTENING
   }
 }

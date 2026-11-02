@@ -50,6 +50,14 @@ class EventsTest {
   }
 
   @Test
+  fun anAnswerSaysWhenNothingHeardWasForJarvis() {
+    val not = VoiceEvent.from(parse("data: {\"type\":\"result\",\"text\":\"\",\"ok\":true,\"notForMe\":true}").single())
+    assertEquals(VoiceEvent.Answer("", true, notForMe = true), not)
+    // An older Jarvis never says so: an answer for Jarvis, as before.
+    assertEquals(false, (VoiceEvent.from(parse("data: {\"type\":\"result\",\"text\":\"Hello\"}").single()) as VoiceEvent.Answer).notForMe)
+  }
+
+  @Test
   fun anErrorIsASpeakableFailedAnswer() {
     val e = VoiceEvent.from(parse("data: {\"type\":\"error\",\"text\":\"No luck.\"}").single())
     assertEquals(VoiceEvent.Answer("No luck.", false), e)

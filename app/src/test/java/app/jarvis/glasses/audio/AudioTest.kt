@@ -61,8 +61,25 @@ class AudioTest {
   }
 
   @Test
-  fun aLongQuestionIsCutAtTheLimit() {
+  fun speechStillGoingAtTheCapIsTooLongToBeAQuestion() {
     val gate = SpeechGate(16_000, startTimeoutMs = 5_000, maxMs = 2_000)
-    assertEquals(SpeechGate.Verdict.DONE, run(gate, List(200) { frame(4_000) }))
+    assertEquals(SpeechGate.Verdict.TOO_LONG, run(gate, List(200) { frame(4_000) }))
+    // A pause shorter than the end at the cap is still the same speech.
+    val paused = SpeechGate(16_000, startTimeoutMs = 5_000, maxMs = 2_000)
+    assertEquals(SpeechGate.Verdict.TOO_LONG, run(paused, List(80) { frame(4_000) } + List(40) { frame(60) }))
+  }
+
+  @Test
+  fun aQuestionEndedBeforeTheCapIsDone() {
+    val gate = SpeechGate(16_000, startTimeoutMs = 5_000, maxMs = 2_000)
+    // 0.6 s of speech and the 1.2 s of quiet that ends it, all within the cap.
+    val frames = List(30) { frame(4_000) } + List(62) { frame(60) }
+    assertEquals(SpeechGate.Verdict.DONE, run(gate, frames))
+  }
+
+  @Test
+  fun nobodySpeakingByTheCapIsNoSpeech() {
+    val gate = SpeechGate(16_000, startTimeoutMs = 5_000, maxMs = 2_000)
+    assertEquals(SpeechGate.Verdict.NO_SPEECH, run(gate, List(200) { frame(60) }))
   }
 }

@@ -16,18 +16,24 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import app.jarvis.glasses.glasses.GlassesLink
 import app.jarvis.glasses.ui.ChatScreen
 import app.jarvis.glasses.ui.EvenTheme
 import app.jarvis.glasses.ui.HomeScreen
 import app.jarvis.glasses.ui.Hooks
 import app.jarvis.glasses.ui.InboxScreen
+import app.jarvis.glasses.ui.LiveWave
 import app.jarvis.glasses.ui.SettingsScreen
 import app.jarvis.glasses.ui.Shell
+import app.jarvis.glasses.ui.Tab
 import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.core.types.Permission
 import com.meta.wearable.dat.core.voiceinvocations.isVoiceInvocationsIntent
@@ -86,6 +92,8 @@ class MainActivity : ComponentActivity(), Hooks {
             chat = { ChatScreen(jarvis, this) },
             inbox = { InboxScreen(jarvis) },
             settings = { SettingsScreen(jarvis, this) },
+            // Over every tab while Jarvis is in a conversation; Chat places it above its message box.
+            floating = { tab -> if (tab != Tab.CHAT) LiveWave(jarvis, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp)) },
         )
       }
     }

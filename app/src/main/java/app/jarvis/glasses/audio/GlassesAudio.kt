@@ -20,6 +20,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import app.jarvis.glasses.conversation.Ears
 import app.jarvis.glasses.conversation.Mouth
+import app.jarvis.glasses.live.VoiceLevel
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.abs
@@ -55,6 +56,10 @@ class GlassesAudio(context: Context) : Ears, Mouth {
   private val _connected = MutableStateFlow(false)
   /** Whether the glasses are connected to the phone as a headset right now. */
   val connected: StateFlow<Boolean> = _connected
+
+  private val _level = MutableStateFlow(0f)
+  /** How loud the microphone is while Talk listens, 0..1 (VoiceLevel), for the wave. */
+  val level: StateFlow<Float> = _level
 
   private val _headset = MutableStateFlow<String?>(null)
   /** The glasses' name while they are connected as a headset, for glasses no toolkit knows. */
@@ -111,6 +116,14 @@ class GlassesAudio(context: Context) : Ears, Mouth {
     return ok
   }
 
+  /** Whether the conversation open now goes through the glasses, whose microphone hears everyone nearby, not the phone. */
+  fun onGlasses(): Boolean =
+      routed &&
+          runCatching {
+                audio.communicationDevice?.let { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO && GLASSES.containsMatchIn(it.productName.toString()) }
+              }
+              .getOrNull() == true
+
   override fun close() {
     if (!routed) return
     runCatching { audio.clearCommunicationDevice() }
@@ -119,7 +132,7 @@ class GlassesAudio(context: Context) : Ears, Mouth {
   }
 
   @SuppressLint("MissingPermission") // checked below
-  override suspend fun listen(startTimeoutMs: Long): ByteArray? =
+  override suspend fun listen(startTimeoutMs: Long, maxMs: Long): ByteArray? =
       withContext(Dispatchers.IO) {
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
           return@withContext null
@@ -135,12 +148,13 @@ class GlassesAudio(context: Context) : Ears, Mouth {
           return@withContext null
         }
         record.setPreferredDevice(input)
-        val gate = SpeechGate(RATE, startTimeoutMs)
+        val gate = SpeechGate(RATE, startTimeoutMs, maxMs = maxMs)
         val pcm = ByteArrayOutputStream()
         val buf = ShortArray(RATE / 50) // 20 ms
         val bytes = ByteArray(buf.size * 2)
         var verdict = SpeechGate.Verdict.LISTENING
         var loudest = 0
+        var heard = 0f
         try {
           record.startRecording()
           while (isActive && verdict == SpeechGate.Verdict.LISTENING) {
@@ -154,10 +168,13 @@ class GlassesAudio(context: Context) : Ears, Mouth {
             }
             pcm.write(bytes, 0, n * 2)
             verdict = gate.feed(buf, n)
+            heard = VoiceLevel.smooth(heard, VoiceLevel.loudness(gate.level / Short.MAX_VALUE), rise = 0.5f, fall = 0.15f)
+            _level.value = heard
           }
         } finally {
           runCatching { record.stop() }
           record.release()
+          _level.value = 0f
           // How a turn ended, and how loud the microphone got: tells "nobody spoke" from
           // "spoke, but too quietly to count".
           Log.i(TAG, "listen: $verdict, ${pcm.size() / 2 / (RATE / 1000)} ms, loudest $loudest, from ${record.routedDevice?.productName}")
@@ -169,6 +186,14 @@ class GlassesAudio(context: Context) : Ears, Mouth {
     val tone = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 70)
     tone.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
     delay(220)
+    tone.release()
+  }
+
+  // Three falling notes, about 0.4 s: unlike the opening beep, and heard as an ending.
+  override suspend fun closingCue() {
+    val tone = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 60)
+    tone.startTone(ToneGenerator.TONE_CDMA_CALLDROP_LITE, 400)
+    delay(500)
     tone.release()
   }
 

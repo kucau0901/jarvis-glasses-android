@@ -19,8 +19,12 @@ data class Turn(val role: String, val text: String) {
 sealed interface VoiceEvent {
   data class Heard(val text: String) : VoiceEvent
   data class Progress(val text: String) : VoiceEvent
-  /** The answer's words; `ok` is false for a failure, which is still speakable. */
-  data class Answer(val text: String, val ok: Boolean) : VoiceEvent
+  /**
+   * The answer's words; `ok` is false for a failure, which is still speakable. [notForMe]: asked
+   * with `openMic`, nothing heard was said to Jarvis, so nothing was done or kept; its words are
+   * empty, or with `chars` a short line to show. An older Jarvis never says so.
+   */
+  data class Answer(val text: String, val ok: Boolean, val notForMe: Boolean = false) : VoiceEvent
   /** One sentence of the spoken answer, base64 audio. */
   data class Audio(val seq: Int, val last: Boolean, val mime: String, val base64: String) : VoiceEvent
 
@@ -29,7 +33,7 @@ sealed interface VoiceEvent {
         when (o.str("type")) {
           "transcript" -> Heard(o.str("text") ?: "")
           "progress" -> o.str("text")?.let { Progress(it) }
-          "result" -> Answer(o.str("text") ?: "", o.bool("ok") ?: true)
+          "result" -> Answer(o.str("text") ?: "", o.bool("ok") ?: true, o.bool("notForMe") ?: false)
           "error" -> Answer(o.str("text") ?: "Something went wrong on the way to an answer.", false)
           "audio" -> {
             val a = (o["audio"] as? JsonObject) ?: o

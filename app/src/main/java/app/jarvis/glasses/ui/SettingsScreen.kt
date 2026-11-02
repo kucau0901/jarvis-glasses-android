@@ -217,7 +217,8 @@ fun SettingsScreen(app: JarvisApp, hooks: Hooks) {
         if (live) {
           Text("Hang up after this much quiet", style = MaterialTheme.typography.bodyMedium)
           Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (s in listOf(8, 10, 15, 20, 30)) {
+            // Not past 20 s: a session hangs up 20 s after Jarvis last spoke anyway (LiveVoice.UNANSWERED_MS).
+            for (s in listOf(8, 10, 15, 20)) {
               FilterChip(selected = quiet == s, onClick = { quiet = s; app.prefs.liveQuietSeconds = s }, label = { Text("$s s") })
             }
           }

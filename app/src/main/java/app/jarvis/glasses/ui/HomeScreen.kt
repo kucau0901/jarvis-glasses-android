@@ -708,7 +708,7 @@ private fun Figures(figures: List<app.jarvis.glasses.hub.Figure>) {
 private fun statusText(s: Talk.Status, live: LiveVoice.State): String =
     when {
       live == LiveVoice.State.LIVE -> "live"
-      live == LiveVoice.State.CONNECTING -> "connecting"
+      live == LiveVoice.State.CONNECTING || s == Talk.Status.OPENING -> "connecting"
       s == Talk.Status.LISTENING -> "listening"
       s == Talk.Status.THINKING -> "thinking"
       s == Talk.Status.SPEAKING -> "speaking"

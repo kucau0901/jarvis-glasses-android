@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -64,10 +65,20 @@ enum class Tab(val label: String, val icon: ImageVector) {
   SETTINGS("Settings", Icons.Outlined.Settings),
 }
 
-/** Four tabs along the bottom, icons only, as the Even app does; hidden while typing, so the page meets the keyboard. */
+/**
+ * Four tabs along the bottom, icons only, as the Even app does; hidden while typing, so the page
+ * meets the keyboard. [floating] is drawn over whichever tab is open, above the tabs.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun Shell(hooks: Hooks, home: @Composable () -> Unit, chat: @Composable () -> Unit, inbox: @Composable () -> Unit, settings: @Composable () -> Unit) {
+fun Shell(
+    hooks: Hooks,
+    home: @Composable () -> Unit,
+    chat: @Composable () -> Unit,
+    inbox: @Composable () -> Unit,
+    settings: @Composable () -> Unit,
+    floating: @Composable BoxScope.(Tab) -> Unit = {},
+) {
   var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
   val c = Even.colors
   val sky = remember { mutableStateOf(false) }
@@ -81,6 +92,7 @@ fun Shell(hooks: Hooks, home: @Composable () -> Unit, chat: @Composable () -> Un
           Tab.SETTINGS -> settings()
         }
       }
+      floating(tab)
     }
     if (!WindowInsets.isImeVisible) Row(
         Modifier.fillMaxWidth().background(c.tile).navigationBarsPadding().height(60.dp),

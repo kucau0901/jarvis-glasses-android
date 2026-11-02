@@ -27,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
@@ -102,7 +104,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
     jobs.clear()
     val w = Work()
     work = w
-    scope.launch {
+    // The app's, not the screen's: leaving Chat mid-answer would hang up on Jarvis, and lose the answer.
+    app.scope.launch {
       var answer: Said? = null
       var kind = ""
       var notice = ""
@@ -141,6 +144,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
 
   SkyBehind()
   val h = Hark.colors
+  // The message box's height, for the conversation pill above it.
+  var composer by remember { mutableIntStateOf(0) }
   Box(Modifier.fillMaxSize()) {
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -165,13 +170,14 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
       items(said, key = { it.id }) { s -> SaidRow(s, kinds[s.id], read = s.id == read) }
       items(jobs, key = { it.id }) { j -> JobStarted(j) }
       items(drafts, key = { it.id }) { d ->
-        DraftCard(d, onSend = { scope.launch { note = runCatching { app.client.sendDraft(d.id) }.fold({ "Sent." }, { it.message ?: "Not sent" }); drafts.remove(d) } }, onDrop = { drafts.remove(d) })
+        // The app's, not the screen's, as a question is: leaving Chat mid-send would hang up on it.
+        DraftCard(d, onSend = { app.scope.launch { note = runCatching { app.client.sendDraft(d.id) }.fold({ "Sent." }, { it.message ?: "Not sent" }); drafts.remove(d) } }, onDrop = { drafts.remove(d) })
       }
       // A new list each time workRev moves, so the row redraws: the same Work object would be skipped.
       work?.let { w -> item(key = "working") { workRev.let { WorkingRow(w.steps, w.thinking) } } }
       if (note.isNotEmpty()) item { Text(note, style = MaterialTheme.typography.bodySmall, color = h.dim) }
     }
-    Column(Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.align(Alignment.BottomCenter).onSizeChanged { composer = it.height }.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       if (photo != null) HarkButton("Photo added · remove", solid = false) { photo = null }
       MessagePill(
           text,
@@ -184,6 +190,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
           mic = hooks::talk,
       )
     }
+    // A conversation going on, just above the message box however tall it grows.
+    LiveWave(app, Modifier.align(Alignment.BottomCenter).padding(bottom = with(LocalDensity.current) { composer.toDp() }))
   }
 }
 
