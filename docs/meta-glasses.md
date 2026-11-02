@@ -166,8 +166,9 @@ Glasses on, phone nearby (it can be locked; keep Jarvis allowed to run in the ba
 The glasses' microphone hears everyone near you: a TV, people talking near you, a conversation you
 are having with someone else. With Jarvis 2.8.0 or later:
 
-- Something not said to Jarvis is ignored: nothing answered, nothing done, nothing kept (not in
-  Chat, not in your conversation on Jarvis), and the conversation ends with the closing tone.
+- A follow-up not said to Jarvis is ignored: nothing answered, nothing done, nothing kept (not in
+  Chat, not in your conversation on Jarvis), and the conversation ends with the closing tone. Your
+  opening question, and a reply to an alert, are taken as said to Jarvis and answered.
 - The closing tone means "say Hey Meta, open Jarvis again". It plays whenever listening ends, a
   live session hanging up by itself included; not when you stop it or take the glasses off.
 - A follow-up still going at 15 s is taken for someone else talking and never sent; the opening

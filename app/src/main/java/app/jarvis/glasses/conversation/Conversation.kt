@@ -50,7 +50,8 @@ fun interface Eyes {
 interface Brain {
   suspend fun transcribe(wav: ByteArray): String
 
-  suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, onEvent: suspend (VoiceEvent) -> Unit): VoiceEvent.Answer
+  /** [openMic]: [text] is a follow-up, heard by the microphone opening again after an answer, so maybe someone else's words. */
+  suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, openMic: Boolean = false, onEvent: suspend (VoiceEvent) -> Unit): VoiceEvent.Answer
 
   suspend fun speech(text: String): ByteArray?
 }
@@ -70,9 +71,11 @@ interface Memory {
  * followed by the microphone opening again for a follow-up while [followUps] is on. Silence, or a
  * closing like "thanks" or "dah", ends it, and a closing tone says the microphone is shut.
  *
- * The glasses' microphone hears everyone nearby (a TV, people talking near you), so each question
- * is asked as heard by an open microphone (`openMic`): when nothing heard was said to Jarvis, it
- * answers [VoiceEvent.Answer.notForMe], and nothing is kept or said and the conversation ends.
+ * The glasses' microphone hears everyone nearby (a TV, people talking near you), so a follow-up,
+ * heard by the microphone opening again after an answer, is asked as such (`openMic`): when nothing
+ * heard was said to Jarvis, it answers [VoiceEvent.Answer.notForMe], and nothing is kept or said
+ * and the conversation ends. The opening question after "Hey Meta, open Jarvis", and a reply to an
+ * alert Jarvis said first, go without it: taken as said to Jarvis, though neither names it.
  * Speech still going at the cap ([followUpMaxMs] for a follow-up) is not a question and is never
  * sent; a photo goes only with the wearer's opening question.
  *
@@ -147,6 +150,8 @@ class Conversation(
       var first = opening == null
       // Heard the launch phrase or a bare "okay" since the last answer, and listened again for it.
       var relistened = false
+      // After an answer: the microphone opened again by itself, so what it hears is asked as such.
+      var followUp = false
       while (true) {
         _status.value = Status.LISTENING
         mouth.cue()
@@ -170,12 +175,13 @@ class Conversation(
         val look = first && Phrases.wantsPhoto(heard)
         val photo = if (look) eyes.photo() else null
         if (photo == null && look) _note.value = "No photo: the glasses camera isn't available"
-        if (!answer(heard, photo)) break
+        if (!answer(heard, photo, followUp)) break
         if (!followUps()) break
         wait = followUpWaitMs
         cap = followUpMaxMs
         first = false
         relistened = false
+        followUp = true
       }
     } catch (e: CancellationException) {
       throw e
@@ -195,7 +201,7 @@ class Conversation(
    * answers without words (a tool ran before it found that), which ends the conversation. Its own
    * scope, so stopping the conversation stops the playing too.
    */
-  private suspend fun answer(heard: String, photo: ByteArray?): Boolean = coroutineScope {
+  private suspend fun answer(heard: String, photo: ByteArray?, openMic: Boolean): Boolean = coroutineScope {
     // The alert, unless Chat has it already (it is put there as it arrives).
     val recent = memory.recent()
     val context = recent + listOfNotNull(opened?.let { o -> Turn.jarvis(o.told).takeIf { t -> recent.none { it == t } } })
@@ -211,7 +217,7 @@ class Conversation(
     }
     val reply =
         try {
-          brain.ask(heard, context, photo) { e ->
+          brain.ask(heard, context, photo, openMic) { e ->
             when (e) {
               is VoiceEvent.Progress -> _note.value = "${e.text}…"
               is VoiceEvent.Audio -> {

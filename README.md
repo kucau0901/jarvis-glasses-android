@@ -8,8 +8,8 @@ features on the phone.
 
 - **"Hey Meta, open Jarvis"** starts a conversation. After each answer the microphone opens again
   for a follow-up; "thanks", "that's all", "dah", "terima kasih" or silence ends it, and a closing
-  tone says so. Jarvis answers only what is said to it, not the TV or people talking near you
-  ([What it hears](#what-it-hears)).
+  tone says so. Jarvis answers a follow-up only when it was said to it, not the TV or people
+  talking near you ([What it hears](#what-it-hears)).
 - **Jarvis speaks first**: reminders, "time to leave", routines, job results and anything raised
   from Home Assistant are said in the glasses, then your reply is listened for. Without the
   glasses, they arrive as this app's notifications: **Reply** right there, and Jarvis's answer
@@ -131,12 +131,13 @@ on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by ste
 ## What it hears
 
 The glasses' microphone hears everyone near you, not only you: a TV, people talking near you, a
-conversation you are having with someone else. With Jarvis 2.8.0 or later, every spoken question
-says so (`openMic`), and Jarvis answers only what was said to it.
+conversation you are having with someone else. With Jarvis 2.8.0 or later, every follow-up says
+so (`openMic`), and Jarvis answers only what was said to it. Your opening question after "Hey
+Meta, open Jarvis", and a reply to an alert, go without it: Jarvis takes them as said to it.
 
-- **Not said to Jarvis: ignored.** When nothing heard was for Jarvis, nothing is answered, nothing
-  is done and nothing is kept: not in Chat, not in your conversation on Jarvis. The conversation
-  ends there.
+- **Not said to Jarvis: ignored.** When nothing heard in a follow-up was for Jarvis, nothing is
+  answered, nothing is done and nothing is kept: not in Chat, not in your conversation on Jarvis.
+  The conversation ends there.
 - **The closing tone**, three falling notes unlike the opening beep, means the microphone is shut:
   say "Hey Meta, open Jarvis" again to talk. It plays whenever listening ends: silence, "thanks",
   a follow-up that ran too long, something not said to Jarvis, follow-ups switched off, or a live
@@ -218,7 +219,7 @@ something.
 | Microphone and speakers | The glasses as a Bluetooth headset (HFP/SCO); without them, the phone as a speakerphone: `audio/GlassesAudio.kt`. |
 | End of a question | Loudness only, no touch: `audio/SpeechGate.kt` (1.2 s of quiet after speech; speech still going at 15 s for a follow-up, 45 s otherwise, is too long and never sent). |
 | A spoken question | `POST /api/v1/voice` twice: hear it, then ask the words with the conversation so far and a photo when one was asked for; the answer streams back sentence by sentence (`jarvis/JarvisClient.kt`). |
-| The conversation | `conversation/Conversation.kt`: listen → hear → stop? photo? → ask (`openMic`) → not for Jarvis? → play → listen again; the closing tone when listening ends. |
+| The conversation | `conversation/Conversation.kt`: listen → hear → stop? photo? → ask (`openMic` for a follow-up) → not for Jarvis? → play → listen again; the closing tone when listening ends. |
 | Alerts | WebSocket `/api/v1/events` (`jarvis/AlertSocket.kt`): in Chat at once; when the alert says `talk` and the glasses are connected, said in them (into an open live session, a live session opened with it as `opening`, or turn by turn), else a notification with Reply (`alerts/AlertNotifier.kt`). Either way acknowledged as seen, so Jarvis sends it nowhere else; with this app's notifications switched off in Android, Jarvis goes on to its other ways. |
 | Even Realities G2 | Bluetooth, the protocol MentraOS's G2 driver recovered (`g2/G2Wire.kt`), held only while an alert is up (`g2/G2Link.kt`); its LC3 microphone decoded by Google's liblc3 v1.1.3 (`src/main/cpp`, `audio/Lc3Decoder.kt`); the alert and the conversation about it (`g2/G2Alerts.kt`, `g2/G2Ears.kt`), and the menu "open Jarvis" shows (`g2/G2Menu.kt`, told by Jarvis on the alert socket), asking `/api/v1/voice` for an answer that fits the display (`chars`). |
 | Registration, camera, "Hey Meta" | Meta's Wearables Device Access Toolkit 1.0.1: `glasses/GlassesLink.kt`. |

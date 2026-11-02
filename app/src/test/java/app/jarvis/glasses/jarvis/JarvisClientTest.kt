@@ -71,7 +71,15 @@ class JarvisClientTest {
     assertEquals("what's on today", body["text"]!!.jsonPrimitive.content)
     assertEquals("assistant", body["context"]!!.jsonArray[0].jsonObject["role"]!!.jsonPrimitive.content)
     assertTrue(body["images"]!!.jsonArray[0].jsonPrimitive.content.startsWith("data:image/jpeg;base64,"))
-    // Heard by the glasses' microphone, which hears everyone.
+    // The opening question: Jarvis takes it as said to it.
+    assertNull(body["openMic"])
+  }
+
+  @Test
+  fun aFollowUpSaysTheMicrophoneHeardEveryone() = runBlocking {
+    server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody("data: {\"type\":\"result\",\"text\":\"Sunny.\",\"ok\":true}\n\n"))
+    client.ask("and the weekend", emptyList(), null, openMic = true) {}
+    val body = kotlinx.serialization.json.Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
     assertEquals(true, body["openMic"]!!.jsonPrimitive.content.toBoolean())
   }
 
@@ -79,16 +87,21 @@ class JarvisClientTest {
   fun aQuestionNotForJarvisComesBackEmptyAndSaysSo() = runBlocking {
     server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody("data: {\"type\":\"result\",\"text\":\"\",\"ok\":true,\"notForMe\":true}\n\n"))
     val seen = mutableListOf<VoiceEvent>()
-    val answer = client.ask("and after the break, the weekend weather", emptyList(), null) { seen += it }
+    val answer = client.ask("and after the break, the weekend weather", emptyList(), null, openMic = true) { seen += it }
     assertEquals(VoiceEvent.Answer("", true, notForMe = true), answer)
     assertTrue(seen.none { it is VoiceEvent.Audio })
   }
 
   @Test
-  fun onlyASpokenQuestionSaysTheMicrophoneHearsEveryone() {
-    val spoken = JarvisClient.askBody("what's on today", emptyList(), null)
-    assertEquals("true", spoken["openMic"]!!.jsonPrimitive.content)
-    assertEquals("audio", spoken["reply"]!!.jsonPrimitive.content)
+  fun onlyAFollowUpSaysTheMicrophoneHeardEveryone() {
+    // The opening question, after "Hey Meta, open Jarvis" or in reply to an alert.
+    val opening = JarvisClient.askBody("what's on today", emptyList(), null)
+    assertNull(opening["openMic"])
+    assertEquals("audio", opening["reply"]!!.jsonPrimitive.content)
+    // Heard by the microphone opening again after an answer.
+    val followUp = JarvisClient.askBody("and tomorrow", emptyList(), null, openMic = true)
+    assertEquals("true", followUp["openMic"]!!.jsonPrimitive.content)
+    assertEquals("audio", followUp["reply"]!!.jsonPrimitive.content)
     // The G2's, asked for its display: Jarvis assumes it already.
     val shown = JarvisClient.askBody("what's on today", emptyList(), null, chars = 200)
     assertNull(shown["openMic"])

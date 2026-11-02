@@ -62,11 +62,14 @@ class ConversationTest {
   /** Answers each question, but [notForMe] as Jarvis does what wasn't said to it: no audio, and [shown] (the G2's line) or no words. */
   private class FakeBrain(private val withAudio: Boolean = true, private val notForMe: Set<String> = emptySet(), private val shown: String = "") : Brain {
     val asked = mutableListOf<Triple<String, List<Turn>, ByteArray?>>()
+    // Each question's openMic: a follow-up's, heard by the microphone opening again after an answer.
+    val openMic = mutableListOf<Boolean>()
 
     override suspend fun transcribe(wav: ByteArray) = String(wav)
 
-    override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, onEvent: suspend (VoiceEvent) -> Unit): VoiceEvent.Answer {
+    override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, openMic: Boolean, onEvent: suspend (VoiceEvent) -> Unit): VoiceEvent.Answer {
       asked += Triple(text, context, photoJpeg)
+      this.openMic += openMic
       if (text in notForMe) return VoiceEvent.Answer(shown, true, notForMe = true).also { onEvent(it) }
       val answer = VoiceEvent.Answer("answer to $text", true)
       onEvent(VoiceEvent.Progress("Checking"))
@@ -156,7 +159,7 @@ class ConversationTest {
     // A tool ran, then Jarvis found it wasn't said to it: no words, and no notForMe.
     val silent =
         object : Brain by FakeBrain() {
-          override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, onEvent: suspend (VoiceEvent) -> Unit) =
+          override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, openMic: Boolean, onEvent: suspend (VoiceEvent) -> Unit) =
               VoiceEvent.Answer("", true).also { onEvent(it) }
         }
     val ears = FakeEars("lights down for the film", "never listened for")
@@ -192,6 +195,27 @@ class ConversationTest {
     assertEquals(listOf("That wasn't for me."), lens.said)
     assertTrue(memory.kept.isEmpty())
     assertEquals(1, ears.waits.size)
+  }
+
+  @Test
+  fun onlyAFollowUpIsAskedAsHeardByAnOpenMicrophone() = runTest {
+    // The opening question is taken as said to Jarvis, though it never names it.
+    val brain = FakeBrain()
+    conversation(FakeEars("what's on today", "and tomorrow", "and the day after"), FakeMouth(), brain).start()
+    advanceUntilIdle()
+    assertEquals(listOf(false, true, true), brain.openMic)
+    // Still the opening question after the launch phrase is heard again.
+    val relaunched = FakeBrain()
+    conversation(FakeEars("Hey Meta, open Jarvis", "what's on today"), FakeMouth(), relaunched, followUps = false).start()
+    advanceUntilIdle()
+    assertEquals(listOf(false), relaunched.openMic)
+    // A reply to an alert Jarvis said first is taken as said to Jarvis too; what comes after it is a follow-up.
+    val replied = FakeBrain()
+    val alert = Alert("a1", "Office", "Leave in ten minutes.", speak = true, urgent = false)
+    conversation(FakeEars("remind me in five", "and book a taxi"), FakeMouth(), replied).start(alert)
+    advanceUntilIdle()
+    assertEquals(listOf("remind me in five", "and book a taxi"), replied.asked.map { it.first })
+    assertEquals(listOf(false, true), replied.openMic)
   }
 
   @Test
@@ -388,7 +412,7 @@ class ConversationTest {
     val memory = FakeMemory()
     val failing =
         object : Brain by FakeBrain(withAudio = false) {
-          override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, onEvent: suspend (VoiceEvent) -> Unit) =
+          override suspend fun ask(text: String, context: List<Turn>, photoJpeg: ByteArray?, openMic: Boolean, onEvent: suspend (VoiceEvent) -> Unit) =
               VoiceEvent.Answer("Jarvis couldn't do that.", false)
         }
     conversation(FakeEars("do it"), FakeMouth(), failing, followUps = false, memory = memory).start()

@@ -72,24 +72,26 @@ class JarvisClient(
       text: String,
       context: List<Turn>,
       photoJpeg: ByteArray?,
+      openMic: Boolean,
       onEvent: suspend (VoiceEvent) -> Unit,
-  ): VoiceEvent.Answer = ask(text, context, photoJpeg, null, onEvent)
+  ): VoiceEvent.Answer = ask(text, context, photoJpeg, null, openMic, onEvent)
 
   /**
    * [chars] set: the answer is for a small display rather than spoken, written to fit that many
    * characters, and comes as text only. Without it the question was heard by the glasses'
-   * microphone, which hears everyone, and is asked as such ([askBody]).
+   * microphone; [openMic] when it opened again after an answer, for a follow-up ([askBody]).
    */
   suspend fun ask(
       text: String,
       context: List<Turn>,
       photoJpeg: ByteArray?,
       chars: Int?,
+      openMic: Boolean = false,
       onEvent: suspend (VoiceEvent) -> Unit,
   ): VoiceEvent.Answer =
       withContext(Dispatchers.IO) {
         var answer: VoiceEvent.Answer? = null
-        stream("/api/v1/voice", askBody(text, context, photoJpeg, origin(), chars)) { o ->
+        stream("/api/v1/voice", askBody(text, context, photoJpeg, origin(), chars, openMic)) { o ->
           val e = VoiceEvent.from(o) ?: return@stream
           if (e is VoiceEvent.Answer) answer = e
           onEvent(e)
@@ -314,12 +316,13 @@ class JarvisClient(
             .build()
 
     /**
-     * The JSON body of a text question: `{text, context, reply, format, openMic, images?}`. A spoken
-     * one says `openMic`: the microphone hears everyone nearby, so Jarvis answers only what was said
-     * to it, and otherwise [VoiceEvent.Answer.notForMe]. With [chars] (the G2) Jarvis assumes that
-     * already.
+     * The JSON body of a text question: `{text, context, reply, format, openMic?, images?}`. A
+     * spoken follow-up says `openMic` ([openMic]): the microphone opened again after an answer and
+     * hears everyone nearby, so Jarvis answers only what was said to it, and otherwise
+     * [VoiceEvent.Answer.notForMe]. The opening question and a reply to an alert don't: Jarvis takes
+     * them as said to it. With [chars] (the G2) Jarvis assumes `openMic` already.
      */
-    fun askBody(text: String, context: List<Turn>, photoJpeg: ByteArray?, origin: JsonObject? = null, chars: Int? = null): JsonObject = buildJsonObject {
+    fun askBody(text: String, context: List<Turn>, photoJpeg: ByteArray?, origin: JsonObject? = null, chars: Int? = null, openMic: Boolean = false): JsonObject = buildJsonObject {
       put("text", text)
       put("context", turnsJson(context))
       if (chars != null) {
@@ -328,7 +331,7 @@ class JarvisClient(
       } else {
         put("reply", "audio")
         put("format", "mp3")
-        put("openMic", true)
+        if (openMic) put("openMic", true)
       }
       if (origin != null) put("origin", origin)
       if (photoJpeg != null) {
