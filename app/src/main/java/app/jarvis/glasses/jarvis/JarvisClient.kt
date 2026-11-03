@@ -74,12 +74,13 @@ class JarvisClient(
       photoJpeg: ByteArray?,
       openMic: Boolean,
       onEvent: suspend (VoiceEvent) -> Unit,
-  ): VoiceEvent.Answer = ask(text, context, photoJpeg, null, openMic, onEvent)
+  ): VoiceEvent.Answer = ask(text, context, photoJpeg, null, openMic, onEvent = onEvent)
 
   /**
    * [chars] set: the answer is for a small display rather than spoken, written to fit that many
    * characters, and comes as text only. Without it the question was heard by the glasses'
    * microphone; [openMic] when it opened again after an answer, for a follow-up ([askBody]).
+   * [from]: asked on another of the person's screens through this phone (the watch, [origin]).
    */
   suspend fun ask(
       text: String,
@@ -87,11 +88,12 @@ class JarvisClient(
       photoJpeg: ByteArray?,
       chars: Int?,
       openMic: Boolean = false,
+      from: JsonObject? = null,
       onEvent: suspend (VoiceEvent) -> Unit,
   ): VoiceEvent.Answer =
       withContext(Dispatchers.IO) {
         var answer: VoiceEvent.Answer? = null
-        stream("/api/v1/voice", askBody(text, context, photoJpeg, origin(), chars, openMic)) { o ->
+        stream("/api/v1/voice", askBody(text, context, photoJpeg, from ?: origin(), chars, openMic)) { o ->
           val e = VoiceEvent.from(o) ?: return@stream
           if (e is VoiceEvent.Answer) answer = e
           onEvent(e)
@@ -137,8 +139,7 @@ class JarvisClient(
    * Which of the person's screens asked (lib/shared.ts in Jarvis): Jarvis tells this phone what was
    * said lately on their others, and leaves out what it said itself. Whose they are is the sign-in's.
    */
-  private fun origin(): JsonObject? =
-      originId().takeIf { it.isNotBlank() }?.let { id -> buildJsonObject { put("id", id); put("label", "Phone") } }
+  private fun origin(): JsonObject? = originId().takeIf { it.isNotBlank() }?.let { origin(it, "Phone") }
 
   /** Sends a Gmail draft Jarvis wrote (its `draft` event); needs `mail`. */
   suspend fun sendDraft(id: String) =
@@ -292,6 +293,9 @@ class JarvisClient(
     /** The first Jarvis with `client: "glasses"` and `openMic`. */
     const val GLASSES_SINCE = "2.8.0"
     private const val HEALTH_MS = 3_000L
+
+    /** One of the person's screens, as a question's `origin` names it: its id, and what to call it. */
+    fun origin(id: String, label: String): JsonObject = buildJsonObject { put("id", id); put("label", label) }
 
     /** Whether [version] ("2.8.0", "v2.10", "2.8.0-rc.1") is [least] or later; false when it can't be read. */
     fun atLeast(version: String, least: String): Boolean {

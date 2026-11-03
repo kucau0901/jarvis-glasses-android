@@ -23,6 +23,10 @@ import app.jarvis.glasses.hub.Admin
 import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.jarvis.Pairing
 import app.jarvis.glasses.live.LiveVoice
+import app.jarvis.glasses.watch.HubWrist
+import app.jarvis.glasses.watch.WatchAskService
+import app.jarvis.glasses.watch.WatchRelay
+import app.jarvis.glasses.watch.WatchService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,6 +56,8 @@ class JarvisApp : Application() {
   var g2Link: G2Link? = null
   /** Every pair of glasses the app knows, for Home: Meta's, and a G2. */
   lateinit var glasses: StateFlow<List<GlassesState>>
+  /** The Jarvis watch app's questions, asked through this phone ([WatchService]). */
+  lateinit var watch: WatchRelay
 
   override fun onCreate() {
     super.onCreate()
@@ -68,6 +74,22 @@ class JarvisApp : Application() {
     admin = Admin(client)
     notifier = AlertNotifier(this, client, chat, scope)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
+    // Asked as the watch's own screen, with Chat's conversation (read again first, as Talk has it)
+    // for context; spoken answers are Jarvis's mp3, written ones fit the watch's round screen.
+    watch =
+        WatchRelay(
+            scope,
+            signedInAs = { if (prefs.isSetUp) prefs.signedInAs else null },
+            ask = { q, onEvent ->
+              runCatching { chat.refresh() }
+              client.ask(q.text, chat.recent(), null, if (q.speak) null else q.chars, from = JarvisClient.origin(q.origin, "Watch"), onEvent = onEvent)
+            },
+            keep = { chat.keep(it) },
+            send = { node, r -> WatchService.send(this, node, r) },
+            wrist = HubWrist(hub),
+            log = { m, e -> Log.w(TAG, m, e) },
+            busy = { if (it) WatchAskService.start(this) else WatchAskService.stop(this) },
+        )
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       val g2l = G2Link(this).also { g2Link = it }
       g2 = G2Alerts(scope, g2l, client, chat, followUps = { prefs.followUps }, said = { runCatching { chat.refresh() }; chat.said.value })

@@ -54,6 +54,7 @@ android {
 
 dependencies {
   implementation(project(":core"))
+  implementation(project(":link"))
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.compose.ui)
@@ -67,6 +68,8 @@ dependencies {
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.okhttp)
   implementation(libs.stream.webrtc)
+  implementation(libs.play.services.wearable)
+  implementation(libs.kotlinx.coroutines.play.services)
   implementation(libs.mwdat.core)
   implementation(libs.mwdat.camera)
   debugImplementation(libs.mwdat.mockdevice)
