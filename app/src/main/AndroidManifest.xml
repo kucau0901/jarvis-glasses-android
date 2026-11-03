@@ -16,7 +16,8 @@
     <application
         android:name=".JarvisApp"
         android:allowBackup="false"
-        android:icon="@android:drawable/ic_btn_speak_now"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="Jarvis"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
