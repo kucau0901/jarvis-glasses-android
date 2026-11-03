@@ -76,6 +76,26 @@ class G2WireTest {
     assertEquals("Hello", String(parseProto(containers[3] as ByteArray)[12] as ByteArray))
   }
 
+  @Test fun aPageOfBoxesHasEachAfterTheOneTakingTouches() {
+    val page = parseProto(EvenHub.page(g2Page("Top", listOf("a", "b"), "Bottom"), first = true, magic = 1))
+    val containers = parseProto(page[3] as ByteArray)
+    assertEquals(4, containers[1])
+    // Repeated fields: the parser keeps the last, the bottom line, container 3, which takes no touches.
+    val last = parseProto(containers[3] as ByteArray)
+    assertEquals(3, last[9])
+    assertEquals(0, last[11])
+    assertEquals("Bottom", String(last[12] as ByteArray))
+  }
+
+  @Test fun oneBoxsWordsAreReplacedByItsId() {
+    val update = parseProto(EvenHub.updateText(2, "Hi", magic = 3))
+    assertEquals(5, update[1])
+    val body = parseProto(update[9] as ByteArray)
+    assertEquals(2, body[1])
+    assertEquals(2, body[4])
+    assertEquals("Hi", String(body[5] as ByteArray))
+  }
+
   @Test fun theBatteryAndFirmwareAreReadFromTheSettings() {
     val info = Proto().int(1, 1).int(2, 35).int(3, 8).string(5, "2.4.0.24").string(6, "2.4.0.25").int(12, 80).int(13, 1).build()
     assertEquals(G2Info(80, true, "2.4.0.25"), g2Info(Proto().int(1, 2).int(2, 6).bytes(4, info).build()))

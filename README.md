@@ -115,18 +115,30 @@ on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by ste
   doesn't, or Jarvis says not to, alerts come as notifications. Android's notification settings for
   the app (channel "Jarvis's alerts") decide how they look and sound.
 - **Even Realities G2.** With a G2 paired to the phone in Even's app, and Ray-Ban glasses not in
-  use, an alert shows on the G2's display. **Tap** (the touchpad or the R1 ring) to reply:
-  "Listening..." shows, and the G2's microphone hears you. The answer is shown, written for the
-  display. Something longer comes in pages (1/3, 2/3…): **swipe down** for the next, **up** for the
-  one before, and down on the last to close. Tap again to follow up; untouched, it goes after a
-  minute. Home shows the G2, and its battery from the last time an alert was up.
-  **"Hey Even, open Jarvis"** shows Jarvis's own menu on the G2: swipe to choose, tap to open
-  *Talk to Jarvis* (the microphone opens at once), *Latest alerts* (newest first, in pages) or
-  *Close*.
+  use, an alert shows on the G2's display, in **Jarvis's chat**: the same conversation as Chat and
+  the web app, newest at the bottom, under a top line saying what Jarvis is doing (*Listening...*,
+  *Thinking...*, *Checking the calendar...*) and above one saying what a touch does now. **Tap**
+  (the touchpad or the R1 ring) to reply: what you said shows at once, then the answer, written
+  for the display. **Swipe up** for earlier messages, **down** for newer ones; at the newest, swipe
+  down twice to close (once only asks). A swipe down while it listens stops listening. Tap again
+  to follow up; untouched, it goes after a minute. Another alert arriving meanwhile joins the chat
+  rather than coming as a notification. Home shows the G2, and its battery from the last time an
+  alert was up.
+  **"Hey Even, open Jarvis"** shows Jarvis's own screen on the G2: three tiles under the glasses'
+  battery and the time, the chosen one framed bright. Swipe to choose, tap to open **Chat** (tap
+  again to talk), **Alerts** (counting any that arrive meanwhile; tap to reply) or **Close**.
+  Leaving the chat goes back to it. It is only frames and the font's symbols, drawn by the glasses
+  themselves, so a swipe shows at once.
   The microphone never opens by itself: the G2 can't say whether it is being worn. The Even app
-  stays connected all along, and has the glasses back as soon as the alert closes, so "Hey Even"
-  and its own notifications go on working. **Settings → Voice → Show alerts on Even G2 glasses**
-  switches it off.
+  stays connected all along, and has the glasses back as soon as the chat closes, so "Hey Even"
+  and its own notifications go on working. An arm that drops off Bluetooth for a moment is
+  connected again and the chat put back; only after 8 s is it given up on. **Settings → Voice →
+  Show alerts on Even G2 glasses** switches it off.
+  **Showing it to others:** **Settings → Voice → Record a G2 demo** films with the phone's camera
+  and draws what the G2 shows over the middle of the video as it changes, so one video has you
+  and your glasses' display in step, nothing to edit. It is saved to Movies/Jarvis, to share from
+  there. The G2 screen is drawn from what the app sends the glasses, in the phone's font, so it is
+  close to the glasses' look rather than a photo of it.
 
 ## What it hears
 
@@ -221,7 +233,7 @@ something.
 | A spoken question | `POST /api/v1/voice` twice: hear it, then ask the words with the conversation so far and a photo when one was asked for; the answer streams back sentence by sentence (`jarvis/JarvisClient.kt`). |
 | The conversation | `conversation/Conversation.kt`: listen → hear → stop? photo? → ask (`openMic` for a follow-up) → not for Jarvis? → play → listen again; the closing tone when listening ends. |
 | Alerts | WebSocket `/api/v1/events` (`jarvis/AlertSocket.kt`): in Chat at once; when the alert says `talk` and the glasses are connected, said in them (into an open live session, a live session opened with it as `opening`, or turn by turn), else a notification with Reply (`alerts/AlertNotifier.kt`). Either way acknowledged as seen, so Jarvis sends it nowhere else; with this app's notifications switched off in Android, Jarvis goes on to its other ways. |
-| Even Realities G2 | Bluetooth, the protocol MentraOS's G2 driver recovered (`g2/G2Wire.kt`), held only while an alert is up (`g2/G2Link.kt`); its LC3 microphone decoded by Google's liblc3 v1.1.3 (`src/main/cpp`, `audio/Lc3Decoder.kt`); the alert and the conversation about it (`g2/G2Alerts.kt`, `g2/G2Ears.kt`), and the menu "open Jarvis" shows (`g2/G2Menu.kt`, told by Jarvis on the alert socket), asking `/api/v1/voice` for an answer that fits the display (`chars`). |
+| Even Realities G2 | Bluetooth, the protocol MentraOS's G2 driver recovered (`g2/G2Wire.kt`), held only while an alert is up (`g2/G2Link.kt`); its LC3 microphone decoded by Google's liblc3 v1.1.3 (`src/main/cpp`, `audio/Lc3Decoder.kt`); the chat on the display (`g2/G2Chat.kt`), the alert and the conversation about it (`g2/G2Alerts.kt`, `g2/G2Ears.kt`), and the menu "open Jarvis" shows (`g2/G2Menu.kt`, told by Jarvis on the alert socket), asking `/api/v1/voice` for an answer that fits the display (`chars`). |
 | Registration, camera, "Hey Meta" | Meta's Wearables Device Access Toolkit 1.0.1: `glasses/GlassesLink.kt`. |
 | Live voice | WebRTC (`live/LiveVoice.kt`) to Jarvis's `/api/session` (`client: "glasses"` through the glasses, from Jarvis 2.8.0 by `/api/health`); tool calls relayed to `/api/v1/stream` as the web app does, with only the turns Jarvis answered (`live/LiveRelay.kt`). |
 | Signing in | Jarvis's pairing code (`jarvis/Pairing.kt`); the person's session reaches `/api/hub/…` (`hub/Hub.kt`) and, for an admin, the settings API (`hub/Admin.kt`). |
@@ -237,7 +249,7 @@ something.
 
 Unit tests cover the event stream, alerts, pairing, the Jarvis API calls, end-of-speech detection,
 the phrases, the conversation loop with fakes, the live relay, the Home layout, Chat's pills and
-answers, the ChatGPT sign-in catcher, and the G2's framing, sign-in, pages and touches. Meta's Mock Device Kit (debug builds) stands in for
+answers, the ChatGPT sign-in catcher, and the G2's framing, sign-in, pages, chat and touches. Meta's Mock Device Kit (debug builds) stands in for
 glasses. `.mcp.json` connects Meta's toolkit docs server.
 
 Not covered by tests, to try with the glasses: the headset routing, "Hey Meta", the camera, live
