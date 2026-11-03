@@ -72,7 +72,7 @@ class JarvisApp : Application() {
     // A bot's exchange with Jarvis, kept in the person's conversation: Chat reads it again, signed in as them.
     alerts = AlertSocket(client, scope, ::onAlert, ::openG2, onSaid = { scope.launch { runCatching { chat.refresh() } } })
     admin = Admin(client)
-    notifier = AlertNotifier(this, client, chat, scope)
+    notifier = AlertNotifier(this, client, hub, chat, scope)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
     // Asked as the watch's own screen, with Chat's conversation (read again first, as Talk has it)
     // for context; spoken answers are Jarvis's mp3, written ones fit the watch's round screen.
@@ -151,15 +151,22 @@ class JarvisApp : Application() {
    * about it ([Alert.talk]: the person's choices in Family → You → Alerts) and this phone may say
    * alerts, it starts a conversation in the glasses: said into a live session already open, or as
    * the Live voice setting has it, a live session that opens by saying it, else turn by turn.
-   * Otherwise, or when the glasses are busy, a notification to reply to. Either way it is
-   * acknowledged as seen, so Jarvis doesn't also send it elsewhere; only when Android blocks this
-   * app's notifications does Jarvis carry on to its other ways.
+   * Otherwise, or when the glasses are busy, on a G2's display when one is with the phone.
+   *
+   * And always a notification, as the web app's are, so the phone and the watch have it whatever
+   * the glasses did: a quiet one once it has been said aloud, as it was heard; the G2 can't say
+   * whether it is being worn, so with it the notification comes as usual. Seen anywhere, it is
+   * acknowledged, so Jarvis doesn't also send it elsewhere; only when nothing could show it does
+   * Jarvis carry on to its other ways.
    */
   private fun onAlert(alert: Alert): Boolean {
     // First, so the conversation it starts has it (a state update: safe from the socket's thread).
     chat.arrived(alert)
     val talk = alert.talk && prefs.speakAlerts
-    if (live.state.value == LiveVoice.State.LIVE) return (talk && live.tell(alert)) || notifier.show(alert)
+    if (live.state.value == LiveVoice.State.LIVE) {
+      val said = talk && live.tell(alert)
+      return notifier.show(alert, said) || said
+    }
     // Not into glasses that aren't being worn: on a G2's display when one is with the phone, else
     // a notification. With a G2 there too, Ray-Ban glasses have it only when they say they are
     // worn: left open on a desk they would say it to nobody and listen, while the G2 shows it with
@@ -168,13 +175,15 @@ class JarvisApp : Application() {
     val g2Ready = prefs.g2 && g2?.canShow() == true
     if (!talk || !audio.connected.value || folded(link.glasses.value) || (g2Ready && !worn(link.glasses.value)) ||
         live.state.value != LiveVoice.State.OFF || conversation.isBusy) {
-      return (prefs.g2 && g2?.show(alert) { notifier.show(it) } == true) || notifier.show(alert)
+      val shown = notifier.show(alert)
+      // Its notification is up already, should the G2 not be signed in to after all.
+      return (prefs.g2 && g2?.show(alert) {} == true) || shown
     }
     val started =
         if (prefs.live) {
           live.start(chat.recent(), onFail = { conversation.start(opening = alert) }, onSaid = { chat.keep(listOf(it)) }, opening = alert)
         } else conversation.start(opening = alert)
-    return started || notifier.show(alert)
+    return notifier.show(alert, said = started) || started
   }
 }
 

@@ -54,6 +54,11 @@ class MainActivity : ComponentActivity(), Hooks {
 
   private var chosenTheme by mutableStateOf("system")
 
+  /** Where a notification asked to open: Chat, or the Inbox at a conversation. Counted, so the same place opens again. */
+  private var opening by mutableStateOf(Opening(null, null, 0))
+
+  data class Opening(val tab: Tab?, val convo: String?, val n: Int)
+
   override var theme: String
     get() = chosenTheme
     set(v) {
@@ -77,6 +82,7 @@ class MainActivity : ComponentActivity(), Hooks {
     enableEdgeToEdge()
     phonePermissions.launch(PHONE_PERMISSIONS)
     if (savedInstanceState == null && isVoiceInvocationsIntent(intent)) onHeyMeta()
+    if (savedInstanceState == null) opened(intent)
     chosenTheme = jarvis.prefs.theme
     setContent {
       val dark = if (theme == "system") isSystemInDarkTheme() else theme == "dark"
@@ -88,9 +94,11 @@ class MainActivity : ComponentActivity(), Hooks {
       EvenTheme(dark) {
         Shell(
             this,
+            open = opening.tab,
+            openCount = opening.n,
             home = { HomeScreen(jarvis, this) },
             chat = { ChatScreen(jarvis, this) },
-            inbox = { InboxScreen(jarvis) },
+            inbox = { InboxScreen(jarvis, opening.convo, onOpened = { opening = opening.copy(convo = null) }) },
             settings = { SettingsScreen(jarvis, this) },
             // Over every tab while Jarvis is in a conversation; Chat places it above its message box.
             floating = { tab -> if (tab != Tab.CHAT) LiveWave(jarvis, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp)) },
@@ -104,6 +112,20 @@ class MainActivity : ComponentActivity(), Hooks {
     setIntent(intent)
     jarvis.link.handle(this, intent)
     if (isVoiceInvocationsIntent(intent)) onHeyMeta()
+    opened(intent)
+  }
+
+  /** A notification's tap: to Chat, or the Inbox and the conversation it came from. */
+  private fun opened(intent: Intent) {
+    // Jarvis reopened from Recents comes with the intent that first opened it: not a tap now.
+    if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+    val tab =
+        when (intent.getStringExtra(OPEN)) {
+          OPEN_CHAT -> Tab.CHAT
+          OPEN_INBOX -> Tab.INBOX
+          else -> return
+        }
+    opening = Opening(tab, intent.getStringExtra(OPEN_CONVO), opening.n + 1)
   }
 
   override fun onResume() {
@@ -174,6 +196,12 @@ class MainActivity : ComponentActivity(), Hooks {
   }
 
   companion object {
+    /** Which tab a notification opens ([OPEN_CHAT], [OPEN_INBOX]), and in the Inbox, which conversation. */
+    const val OPEN = "open"
+    const val OPEN_CHAT = "chat"
+    const val OPEN_INBOX = "inbox"
+    const val OPEN_CONVO = "convo"
+
     private val PHONE_PERMISSIONS =
         arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
   }

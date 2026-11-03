@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +74,9 @@ enum class Tab(val label: String, val icon: ImageVector) {
 @Composable
 fun Shell(
     hooks: Hooks,
+    /** A tab to go to, each time [openCount] moves: a notification's tap. */
+    open: Tab? = null,
+    openCount: Int = 0,
     home: @Composable () -> Unit,
     chat: @Composable () -> Unit,
     inbox: @Composable () -> Unit,
@@ -80,6 +84,7 @@ fun Shell(
     floating: @Composable BoxScope.(Tab) -> Unit = {},
 ) {
   var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
+  LaunchedEffect(openCount) { open?.let { tab = it } }
   val c = Even.colors
   val sky = remember { mutableStateOf(false) }
   Column(Modifier.fillMaxSize().let { if (sky.value) it.sky(Hark.colors) else it.background(c.page) }.statusBarsPadding().imePadding()) {

@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import app.jarvis.glasses.R
 
 /**
  * Keeps the phone app running while it answers the watch. Play services wakes the app only to hand
@@ -49,7 +50,7 @@ class WatchAskService : Service() {
     val nm = getSystemService(NotificationManager::class.java)
     nm.createNotificationChannel(NotificationChannel(CHANNEL, "Answering the watch", NotificationManager.IMPORTANCE_MIN))
     return Notification.Builder(this, CHANNEL)
-        .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+        .setSmallIcon(R.drawable.ic_stat_jarvis)
         .setContentTitle("Asking Jarvis for the watch")
         .build()
   }
