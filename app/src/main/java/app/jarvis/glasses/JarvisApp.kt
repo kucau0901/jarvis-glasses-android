@@ -23,6 +23,10 @@ import app.jarvis.glasses.hub.Admin
 import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.jarvis.Pairing
 import app.jarvis.glasses.live.LiveVoice
+import app.jarvis.glasses.watch.HubWrist
+import app.jarvis.glasses.watch.WatchAskService
+import app.jarvis.glasses.watch.WatchRelay
+import app.jarvis.glasses.watch.WatchService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,6 +56,8 @@ class JarvisApp : Application() {
   var g2Link: G2Link? = null
   /** Every pair of glasses the app knows, for Home: Meta's, and a G2. */
   lateinit var glasses: StateFlow<List<GlassesState>>
+  /** The Jarvis watch app's questions, asked through this phone ([WatchService]). */
+  lateinit var watch: WatchRelay
 
   override fun onCreate() {
     super.onCreate()
@@ -66,8 +72,24 @@ class JarvisApp : Application() {
     // A bot's exchange with Jarvis, kept in the person's conversation: Chat reads it again, signed in as them.
     alerts = AlertSocket(client, scope, ::onAlert, ::openG2, onSaid = { scope.launch { runCatching { chat.refresh() } } })
     admin = Admin(client)
-    notifier = AlertNotifier(this, client, chat, scope)
+    notifier = AlertNotifier(this, client, hub, chat, scope)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
+    // Asked as the watch's own screen, with Chat's conversation (read again first, as Talk has it)
+    // for context; spoken answers are Jarvis's mp3, written ones fit the watch's round screen.
+    watch =
+        WatchRelay(
+            scope,
+            signedInAs = { if (prefs.isSetUp) prefs.signedInAs else null },
+            ask = { q, onEvent ->
+              runCatching { chat.refresh() }
+              client.ask(q.text, chat.recent(), null, if (q.speak) null else q.chars, openMic = q.openMic, from = JarvisClient.origin(q.origin, "Watch"), onEvent = onEvent)
+            },
+            keep = { chat.keep(it) },
+            send = { node, r -> WatchService.send(this, node, r) },
+            wrist = HubWrist(hub),
+            log = { m, e -> Log.w(TAG, m, e) },
+            busy = { if (it) WatchAskService.start(this) else WatchAskService.stop(this) },
+        )
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       val g2l = G2Link(this).also { g2Link = it }
       g2 = G2Alerts(scope, g2l, client, chat, followUps = { prefs.followUps }, said = chat.said, refresh = chat::refresh)
@@ -112,6 +134,8 @@ class JarvisApp : Application() {
         chat.recent(),
         onFail = { conversation.start() },
         onSaid = { chat.keep(listOf(it)) },
+        onShown = chat::liveShowed,
+        onEnd = chat::liveEnded,
     )
   }
 
@@ -129,15 +153,24 @@ class JarvisApp : Application() {
    * about it ([Alert.talk]: the person's choices in Family → You → Alerts) and this phone may say
    * alerts, it starts a conversation in the glasses: said into a live session already open, or as
    * the Live voice setting has it, a live session that opens by saying it, else turn by turn.
-   * Otherwise, or when the glasses are busy, a notification to reply to. Either way it is
-   * acknowledged as seen, so Jarvis doesn't also send it elsewhere; only when Android blocks this
-   * app's notifications does Jarvis carry on to its other ways.
+   * Otherwise, or when the glasses are busy, on a G2's display when one is with the phone.
+   *
+   * And a notification, as the web app's are, so the phone and the watch have it whatever the
+   * glasses did: a quiet one once it has been said aloud, as it was heard; the G2 can't say
+   * whether it is being worn, so with it the notification comes as usual. Not while Jarvis is
+   * open on a G2, which has it in its chat: the Even app would put the notification on the
+   * glasses too, over Jarvis's page. Seen anywhere, it is
+   * acknowledged, so Jarvis doesn't also send it elsewhere; only when nothing could show it does
+   * Jarvis carry on to its other ways.
    */
   private fun onAlert(alert: Alert): Boolean {
     // First, so the conversation it starts has it (a state update: safe from the socket's thread).
     chat.arrived(alert)
     val talk = alert.talk && prefs.speakAlerts
-    if (live.state.value == LiveVoice.State.LIVE) return (talk && live.tell(alert)) || notifier.show(alert)
+    if (live.state.value == LiveVoice.State.LIVE) {
+      val said = talk && live.tell(alert)
+      return notifier.show(alert, said) || said
+    }
     // Jarvis open on a G2: shown there, in its chat. A notification would be put on the glasses
     // by the Even app, over Jarvis's page, while the wearer may be replying.
     if (prefs.g2 && g2?.take(alert) == true) return true
@@ -149,13 +182,15 @@ class JarvisApp : Application() {
     val g2Ready = prefs.g2 && g2?.canShow() == true
     if (!talk || !audio.connected.value || folded(link.glasses.value) || (g2Ready && !worn(link.glasses.value)) ||
         live.state.value != LiveVoice.State.OFF || conversation.isBusy) {
-      return (prefs.g2 && g2?.show(alert) { notifier.show(it) } == true) || notifier.show(alert)
+      val shown = notifier.show(alert)
+      // Its notification is up already, should the G2 not be signed in to after all.
+      return (prefs.g2 && g2?.show(alert) {} == true) || shown
     }
     val started =
         if (prefs.live) {
-          live.start(chat.recent(), onFail = { conversation.start(opening = alert) }, onSaid = { chat.keep(listOf(it)) }, opening = alert)
+          live.start(chat.recent(), onFail = { conversation.start(opening = alert) }, onSaid = { chat.keep(listOf(it)) }, opening = alert, onShown = chat::liveShowed, onEnd = chat::liveEnded)
         } else conversation.start(opening = alert)
-    return started || notifier.show(alert)
+    return notifier.show(alert, said = started) || started
   }
 }
 

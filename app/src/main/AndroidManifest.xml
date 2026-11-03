@@ -19,7 +19,8 @@
     <application
         android:name=".JarvisApp"
         android:allowBackup="false"
-        android:icon="@android:drawable/ic_btn_speak_now"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="Jarvis"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
@@ -48,6 +49,25 @@
         <receiver
             android:name=".alerts.ReplyReceiver"
             android:exported="false" />
+
+        <!-- Kept running while an answer for the watch is on its way (Android 14's short service). -->
+        <service
+            android:name=".watch.WatchAskService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
+
+        <!-- The Jarvis watch app's questions, over Wear OS's Data Layer (app/watch, the link module). -->
+        <service
+            android:name=".watch.WatchService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/jarvis/"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
 
         <activity
             android:name=".DemoActivity"

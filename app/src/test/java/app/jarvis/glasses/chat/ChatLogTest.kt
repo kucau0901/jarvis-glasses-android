@@ -1,6 +1,7 @@
 package app.jarvis.glasses.chat
 
 import app.jarvis.glasses.hub.AlertFrom
+import app.jarvis.glasses.hub.MadePage
 import app.jarvis.glasses.hub.Named
 import app.jarvis.glasses.hub.Said
 import app.jarvis.glasses.hub.SkillFrom
@@ -136,6 +137,70 @@ class ChatLogTest {
     c.clear()
     assertTrue(j.wiped)
     assertTrue(c.said.value.isEmpty() && c.kinds.value.isEmpty())
+  }
+
+  @Test
+  fun whatAnAnswerShowedIsUnderItUntilClosed() = runTest {
+    val log = log(Jarvis())
+    val map = Shown.Place(3.1, 101.6, "KLCC", street = false, satellite = false)
+    val gate = Shown.Camera("camera.gate", "Gate")
+    log.showed("a1aaaaa", listOf(map))
+    log.showed("a2aaaaa", emptyList())
+    assertEquals(mapOf("a1aaaaa" to listOf(map)), log.shown.value)
+    // "Close that, show me the gate": what was shown goes, the gate stays.
+    log.showed("a3aaaaa", listOf(Shown.Close, gate))
+    assertEquals(mapOf("a3aaaaa" to listOf<Shown>(gate)), log.shown.value)
+    log.clear()
+    assertTrue(log.shown.value.isEmpty())
+  }
+
+  @Test
+  fun aPageTheAnswerMadeIsSentWithIt() = runTest {
+    val j = Jarvis()
+    val log = log(j)
+    log.keep(listOf(Said("a4aaaaa", NOW, "assistant", "Here it is.", page = MadePage("pg_1", "Trip"))))
+    advanceUntilIdle()
+    assertEquals(MadePage("pg_1", "Trip"), j.saved.single().single().page)
+  }
+
+  @Test
+  fun aPageSetApartIsNotToldAsWords() {
+    val history =
+        listOf(
+            Said("p000001", NOW, "assistant", "Trip", page = MadePage("pg_1", "Trip")),
+            Said("a000001", NOW, "assistant", "Here is the budget.", page = MadePage("pg_2", "Budget")),
+        )
+    assertTrue(history[0].apart)
+    assertEquals(listOf(Turn.jarvis("Here is the budget.")), ChatLog.transcript(history, emptySet(), NOW))
+  }
+
+  @Test
+  fun whatLiveShowedGoesUnderTheAnswerSaidAboutIt() = runTest {
+    val j = Jarvis()
+    val log = log(j)
+    val gate = Shown.Camera("camera.gate", "Gate")
+    log.keep(listOf(Turn.user("show me the gate")))
+    log.liveShowed(gate)
+    log.liveShowed(Shown.Page("pg_1", "Trip"))
+    log.keep(listOf(Turn.jarvis("Here's the gate.")))
+    advanceUntilIdle()
+    val rows = log.said.value
+    // The page at once, kept on its own; the camera under the answer.
+    assertEquals(MadePage("pg_1", "Trip"), rows[1].page)
+    assertEquals(mapOf(rows[2].id to listOf<Shown>(gate)), log.shown.value)
+    // "Close that" takes it off.
+    log.liveShowed(Shown.Close)
+    assertTrue(log.shown.value.isEmpty())
+  }
+
+  @Test
+  fun whatLiveShowedWithNoAnswerIsUnderTheLastRowWhenItEnds() = runTest {
+    val log = log(Jarvis())
+    val map = Shown.Place(3.1, 101.6, "KLCC", street = false, satellite = false)
+    log.keep(listOf(Turn.user("show me KLCC")))
+    log.liveShowed(map)
+    log.liveEnded()
+    assertEquals(mapOf(log.said.value.last().id to listOf<Shown>(map)), log.shown.value)
   }
 
   private companion object {

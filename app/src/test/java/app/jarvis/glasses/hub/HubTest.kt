@@ -286,6 +286,38 @@ class HubTest {
   }
 
   @Test
+  fun whatChatShowsIsFetchedWithTheSignInAndAFailureSaysWhy() = runBlocking {
+    server.enqueue(MockResponse().setBody(okio.Buffer().write(byteArrayOf(1, 2, 3))))
+    assertEquals(3, hub.picture("/api/camera?entity=camera.gate&h=540").size)
+    val req = server.takeRequest()
+    assertEquals("/api/camera?entity=camera.gate&h=540", req.path)
+    assertEquals("Bearer jss1_test", req.getHeader("Authorization"))
+    assertEquals("cf", req.getHeader("CF-Access-Client-Id"))
+    server.enqueue(MockResponse().setResponseCode(502).setBody("""{"error":"camera image unavailable"}"""))
+    try {
+      hub.picture("/api/camera?entity=camera.gate&h=540")
+      fail()
+    } catch (e: JarvisClient.JarvisException) {
+      assertEquals("camera image unavailable", e.message)
+    }
+  }
+
+  @Test
+  fun aPageIsOpenedByAFreshLinkAndKeptWithItsAnswer() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"title":"Trip","at":1,"viewUrl":"https://j.example/api/v1/p/pg_1?k=v","shared":false}"""))
+    assertEquals("https://j.example/api/v1/p/pg_1?k=v", hub.pageLink("pg_1"))
+    assertEquals("/api/page?id=pg_1", server.takeRequest().path)
+    server.enqueue(MockResponse().setBody("""{"kept":1}"""))
+    hub.keep(listOf(Said("a1xxxxx", 0, "assistant", "Here.", page = MadePage("pg_1", "Trip"))))
+    val page = body()["said"]!!.jsonArray[0].jsonObject["page"]!!.jsonObject
+    assertEquals("pg_1", page["id"]!!.jsonPrimitive.content)
+    assertEquals("Trip", page["title"]!!.jsonPrimitive.content)
+    // And one kept on the web comes back with its answer.
+    server.enqueue(MockResponse().setBody("""{"said":[{"id":"a1xxxxx","at":1,"role":"assistant","text":"Here.","page":{"id":"pg_1","title":"Trip"}}]}"""))
+    assertEquals(MadePage("pg_1", "Trip"), hub.conversation().single().page)
+  }
+
+  @Test
   fun historyIsKeptTenAtATime() = runBlocking {
     server.enqueue(MockResponse().setBody("""{"kept":2}"""))
     hub.keep(List(12) { Said("id$it" + "xxxx", 0, if (it % 2 == 0) "user" else "assistant", "t$it") })

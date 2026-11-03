@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This app answers the Jarvis watch app: the watch finds the phone by this capability (WatchLink.PHONE). -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@array/android_wear_capabilities">
+    <string-array name="android_wear_capabilities" translatable="false">
+        <item>jarvis_phone</item>
+    </string-array>
+</resources>

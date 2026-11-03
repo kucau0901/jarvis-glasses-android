@@ -3,7 +3,8 @@ package app.jarvis.glasses.conversation
 /**
  * The two things the app decides from what was heard before asking Jarvis: whether the question
  * is about what the wearer sees (take a photo with it), and whether they are ending the
- * conversation (no answer is paid for). English and Malay, as the owner speaks both.
+ * conversation (no answer is paid for). English and Malay, as the owner speaks both. Here in the
+ * link module so the watch ends a conversation on the same words as the phone.
  */
 object Phrases {
   private val LOOK =

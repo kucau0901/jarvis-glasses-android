@@ -40,11 +40,21 @@ import app.jarvis.glasses.hub.Proposals
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** What waits for the person: Jarvis's proposals needing an OK, and family messages. */
+/**
+ * What waits for the person: Jarvis's proposals needing an OK, and family messages. [openConvo]: a
+ * conversation to open (its notification tapped), once: [onOpened] says it was, so coming back to
+ * the Inbox later shows the list. An open conversation's notification goes, as it is read here.
+ */
 @Composable
-fun InboxScreen(app: JarvisApp) {
+fun InboxScreen(app: JarvisApp, openConvo: String? = null, onOpened: () -> Unit = {}) {
   var convo by remember { mutableStateOf<Convo?>(null) }
+  LaunchedEffect(openConvo) {
+    val id = openConvo ?: return@LaunchedEffect
+    onOpened()
+    runCatching { app.hub.chats() }.getOrNull()?.convos?.firstOrNull { it.id == id }?.let { convo = it }
+  }
   val open = convo
+  LaunchedEffect(open?.id) { open?.let { app.notifier.read(it.id) } }
   if (open != null) ConversationPage(app, open) { convo = null } else InboxMain(app) { convo = it }
 }
 

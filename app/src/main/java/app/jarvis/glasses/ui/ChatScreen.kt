@@ -41,7 +41,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import app.jarvis.glasses.chat.Shown
 import app.jarvis.glasses.chat.Work
+import app.jarvis.glasses.hub.Hub
+import app.jarvis.glasses.hub.MadePage
 import app.jarvis.glasses.hub.Named
 import app.jarvis.glasses.hub.Link
 import app.jarvis.glasses.hub.Said
@@ -65,6 +68,12 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
   val said by app.chat.said.collectAsStateWithLifecycle()
   // Answers that are notices (a limit reached) or failures, by id: drawn apart, never kept.
   val kinds by app.chat.kinds.collectAsStateWithLifecycle()
+  // What answers put on the screen (a map, a camera, a picture), by answer: drawn under each.
+  val shown by app.chat.shown.collectAsStateWithLifecycle()
+  // What the question being answered has put on the screen so far, drawn under its pills until the answer takes it.
+  val showing = remember { mutableStateListOf<Shown>() }
+  // Whose question those are: their cards are this turn's own, so none outlives it.
+  var turn by remember { mutableStateOf("") }
   val drafts = remember { mutableStateListOf<Draft>() }
   var text by remember { mutableStateOf("") }
   var photo by remember { mutableStateOf<ByteArray?>(null) }
@@ -86,7 +95,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
   LaunchedEffect(person) {
     runCatching { app.chat.refresh() }.onFailure { note = it.message ?: "" }
   }
-  LaunchedEffect(said.size, busy, workRev) { if (said.isNotEmpty()) list.animateScrollToItem(said.size + 1) } // + the heading
+  LaunchedEffect(said.size, busy, workRev, shown.size, showing.size) { if (said.isNotEmpty()) list.animateScrollToItem(said.size + 1) } // + the heading
   // The keyboard shortens the list: keep its bottom where it was, as chat apps do.
   LaunchedEffect(list) {
     var was = 0
@@ -105,6 +114,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
     val mine = Said(Said.newId(), System.currentTimeMillis(), "user", q)
     app.chat.show(mine)
     jobs.clear()
+    showing.clear()
+    turn = mine.id
     val w = Work()
     work = w
     // The app's, not the screen's: leaving Chat mid-answer would hang up on Jarvis, and lose the answer.
@@ -127,6 +138,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
                   workRev++
                 }
                 "job" -> ev.str("id")?.let { jobs.add(Named(it, ev.str("title").orEmpty())) }
+                "display" -> Shown.from(ev)?.let { showing.add(it) }
                 "draft" -> drafts.add(Draft(ev.str("draft").orEmpty(), ev.str("to").orEmpty(), ev.str("subject").orEmpty(), ev.str("body").orEmpty()))
                 "result" -> answer = Said(Said.newId(), System.currentTimeMillis(), "assistant", ev.str("text").orEmpty(), links(ev))
                 "error" -> {
@@ -138,9 +150,24 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
           }
           .onFailure { answer = Said(Said.newId(), System.currentTimeMillis(), "assistant", "Could not reach Jarvis: ${it.message}"); kind = "bad" }
       work = null
-      val a = answer ?: Said(Said.newId(), System.currentTimeMillis(), "assistant", "That ended without an answer. Try again.").also { kind = "bad" }
+      val said = answer ?: Said(Said.newId(), System.currentTimeMillis(), "assistant", "That ended without an answer. Try again.").also { kind = "bad" }
+      // The page the answer made goes with it, kept, as the web app keeps it; anything else it showed is only drawn.
+      val pages = showing.filterIsInstance<Shown.Page>()
+      val made = if (kind.isEmpty()) pages.lastOrNull() else null
+      val a = if (made != null) said.copy(page = MadePage(made.id, made.title)) else said
+      // A page no answer took is kept on its own, as the web keeps it, so none is made that nothing opens.
+      val apart = pages.filter { it !== made }.map { Said(Said.newId(), System.currentTimeMillis(), "assistant", it.title, page = MadePage(it.id, it.title)) }
+      // Numbered as showed() keeps them: after the last "close that", without pages.
+      val closed = showing.lastIndexOf(Shown.Close)
+      showing.withIndex().drop(closed + 1).filter { it.value !is Shown.Page }.forEachIndexed { i, x -> ShownPictures.moved("${mine.id}:${x.index}", "${a.id}:$i") }
+      app.chat.showed(a.id, showing.toList())
+      showing.clear()
       // What went wrong is not kept, as the web app does.
-      if (kind.isEmpty()) app.chat.keep(listOf(mine, a)) else app.chat.show(a, kind)
+      if (kind.isEmpty()) app.chat.keep(listOf(mine) + apart + a)
+      else {
+        app.chat.keep(apart)
+        app.chat.show(a, kind)
+      }
       if (notice.isNotEmpty()) app.chat.show(Said(Said.newId(), System.currentTimeMillis(), "assistant", notice), "limit")
     }
   }
@@ -163,7 +190,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
               if (!clearing) clearing = true
               else scope.launch {
                 clearing = false
-                runCatching { app.chat.clear() }.onSuccess { note = ""; drafts.clear(); jobs.clear() }.onFailure { note = it.message ?: "Not cleared" }
+                runCatching { app.chat.clear() }.onSuccess { note = ""; drafts.clear(); jobs.clear(); ShownPictures.forget() }.onFailure { note = it.message ?: "Not cleared" }
               }
             }
           }
@@ -181,7 +208,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
                     .onFailure { note = it.message ?: "Not answered" }
               }
             }
-        SaidRow(s, kinds[s.id], read = s.id == read, looked = looked[s.id], onLook = onLook)
+        SaidRow(app.hub, s, kinds[s.id], read = s.id == read, shown[s.id].orEmpty(), person, looked = looked[s.id], onLook = onLook)
       }
       items(jobs, key = { it.id }) { j -> JobStarted(j) }
       items(drafts, key = { it.id }) { d ->
@@ -190,6 +217,7 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
       }
       // A new list each time workRev moves, so the row redraws: the same Work object would be skipped.
       work?.let { w -> item(key = "working") { workRev.let { WorkingRow(w.steps, w.thinking) } } }
+      if (busy) items(showing.size, key = { "showing$it" }) { i -> showing.getOrNull(i)?.let { ShownCard(app.hub, it, "$turn:$i", person) } }
       if (note.isNotEmpty()) item { Text(note, style = MaterialTheme.typography.bodySmall, color = h.dim) }
     }
     Column(Modifier.align(Alignment.BottomCenter).onSizeChanged { composer = it.height }.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -211,15 +239,20 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
 }
 
 /**
- * One turn: the bubble, then any links as cards, and the job or routine it came from. Jarvis's
- * answers are drawn as the web app draws them; a limit is a quiet notice, a failure says so.
+ * One turn: the bubble, then any links as cards, and the job or routine it came from, then a page
+ * it made and anything it put on the screen ([shown]). Jarvis's answers are drawn as the web app
+ * draws them; a limit is a quiet notice, a failure says so.
  */
 @Composable
-private fun SaidRow(s: Said, kind: String?, read: Boolean, looked: String? = null, onLook: ((String) -> Unit)? = null) {
+private fun SaidRow(hub: Hub, s: Said, kind: String?, read: Boolean, shown: List<Shown>, person: Boolean, looked: String? = null, onLook: ((String) -> Unit)? = null) {
   val h = Hark.colors
   val mine = s.role == "user"
   if (kind == "limit") {
     Text(s.text, style = MaterialTheme.typography.bodySmall, color = h.dim, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
+    return
+  }
+  if (s.apart) {
+    PageCard(hub, s.page!!)
     return
   }
   HarkBubble(mine) {
@@ -243,6 +276,8 @@ private fun SaidRow(s: Said, kind: String?, read: Boolean, looked: String? = nul
       HarkButton("Less of this", solid = false) { onLook("less") }
     }
   }
+  s.page?.let { PageCard(hub, it) }
+  shown.forEachIndexed { i, it -> ShownCard(hub, it, "${s.id}:$i", person) }
 }
 
 /** A background job this question started, as the web app shows one: its result comes later, in Jobs. */
