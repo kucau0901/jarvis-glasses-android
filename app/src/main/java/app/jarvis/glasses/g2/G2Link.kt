@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -38,6 +39,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The Even app stays connected all along, on the same link, and the glasses go back to it when
  * the page closes. Only sign-in, the time and heartbeats are sent to the glasses' settings: nothing
  * Even's app set (its dashboard, "Hey Even") is changed. The protocol is in [G2Wire].
+ *
+ * An arm that drops for a moment (the Even app's link and ours share the radio) is connected
+ * again and signed in, and the page and microphone put back, before the glasses count as gone.
  */
 @SuppressLint("MissingPermission")
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
@@ -53,6 +57,8 @@ class G2Link(context: Context) : GlassesSource {
     val ops = ArrayDeque<() -> Unit>()
     var busy = false
     var ready = false
+    /** Connections tried again since this arm was last ready. */
+    var retries = 0
     val reassembler = G2Reassembler()
   }
 
@@ -62,6 +68,10 @@ class G2Link(context: Context) : GlassesSource {
   private var magic = 0
   private var signedIn: CompletableDeferred<Boolean>? = null
   private var pageShown = false
+  /** What the page shows, to draw it again after an arm comes back. */
+  private var shown: List<G2Box>? = null
+  /** Signed in, and an arm dropped: being connected again, not yet given up on. */
+  private var recovering = false
   private var mic: Channel<ByteArray>? = null
   private var lastAudio: ByteArray? = null
 
@@ -156,12 +166,29 @@ class G2Link(context: Context) : GlassesSource {
   }
 
   /** Draws [text] on the glasses, filling the display. */
-  fun show(text: String) {
+  fun show(text: String) = show(listOf(G2Box.full(text)))
+
+  /** Draws [boxes] on the glasses; nothing is sent when they are what is shown already. */
+  fun show(boxes: List<G2Box>) {
     main.post {
       if (signedIn?.isCompleted != true) return@post
-      send(G2Service.EVEN_HUB, EvenHub.page(text, first = !pageShown, magic = nextMagic()), true)
-      pageShown = true
+      val was = shown
+      if (pageShown && boxes == was) return@post
+      shown = boxes
+      // Only one box's words changed: just those, when the glasses take it (G2_PARTIAL_UPDATES).
+      val sameLayout = was != null && was.size == boxes.size && boxes.indices.all { boxes[it].copy(text = "") == was[it].copy(text = "") }
+      val changed = if (sameLayout) boxes.filterIndexed { i, b -> b.text != was!![i].text } else emptyList()
+      if (G2_PARTIAL_UPDATES && pageShown && changed.size == 1) {
+        send(G2Service.EVEN_HUB, EvenHub.updateText(changed[0].id, changed[0].text, nextMagic()), true)
+        return@post
+      }
+      draw(boxes)
     }
+  }
+
+  private fun draw(boxes: List<G2Box>) {
+    send(G2Service.EVEN_HUB, EvenHub.page(boxes, first = !pageShown, magic = nextMagic()), true)
+    pageShown = true
   }
 
   /**
@@ -174,10 +201,14 @@ class G2Link(context: Context) : GlassesSource {
       mic?.close()
       mic = channel
       lastAudio = null
-      send(G2Service.EVEN_HUB, EvenHub.mic(false, nextMagic()), true)
-      main.postDelayed({ if (mic === channel) send(G2Service.EVEN_HUB, EvenHub.mic(true, nextMagic()), true).also { Log.i(TAG, "mic on") } }, 500)
+      startMic(channel)
     }
     return channel
+  }
+
+  private fun startMic(channel: Channel<ByteArray>) {
+    send(G2Service.EVEN_HUB, EvenHub.mic(false, nextMagic()), true)
+    main.postDelayed({ if (mic === channel) send(G2Service.EVEN_HUB, EvenHub.mic(true, nextMagic()), true).also { Log.i(TAG, "mic on") } }, 500)
   }
 
   fun micOff() {
@@ -193,6 +224,9 @@ class G2Link(context: Context) : GlassesSource {
   fun close() {
     main.post {
       main.removeCallbacks(heartbeats)
+      main.removeCallbacks(lost)
+      recovering = false
+      shown = null
       mic?.close()
       mic = null
       if (pageShown) {
@@ -209,12 +243,54 @@ class G2Link(context: Context) : GlassesSource {
   private fun disconnect() {
     for (arm in listOf(left, right)) {
       arm.gatt?.disconnect()
-      arm.gatt?.close()
-      arm.gatt = null
-      arm.write = null
-      arm.ready = false
-      arm.ops.clear()
-      arm.busy = false
+      drop(arm)
+      arm.retries = 0
+    }
+  }
+
+  /** [arm]'s connection let go of, as it is or after it dropped. */
+  private fun drop(arm: Arm) {
+    arm.gatt?.close()
+    arm.gatt = null
+    arm.write = null
+    arm.ready = false
+    arm.ops.clear()
+    arm.busy = false
+  }
+
+  /** The glasses gone for good: the page can't be drawn or heard any more. */
+  private fun end() {
+    recovering = false
+    main.removeCallbacks(lost)
+    _touches.tryEmit(G2Touch.CLOSED)
+    pageShown = false
+    shown = null
+    main.removeCallbacks(heartbeats)
+    mic?.close()
+    mic = null
+    signedIn?.complete(false)
+    signedIn = null
+    disconnect()
+  }
+
+  private val lost = Runnable {
+    if (recovering) {
+      Log.w(TAG, "the glasses didn't come back within ${RECOVER_MS / 1000} s")
+      end()
+    }
+  }
+
+  /** An arm back after a drop: signed in again, the page drawn again, the microphone on again if it was. */
+  private fun resume() {
+    val session = signedIn ?: return
+    handshake {
+      if (signedIn !== session || !recovering) return@handshake
+      recovering = false
+      main.removeCallbacks(lost)
+      Log.i(TAG, "back after a drop")
+      pageShown = false
+      shown?.let { draw(it) }
+      mic?.let { startMic(it) }
     }
   }
 
@@ -232,16 +308,18 @@ class G2Link(context: Context) : GlassesSource {
               if (!gatt.requestMtu(247)) gatt.discoverServices()
               gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-              Log.i(TAG, "${arm.side}: disconnected ($status)")
-              // One arm gone is the glasses gone: the page can't be drawn or heard any more.
-              _touches.tryEmit(G2Touch.CLOSED)
-              pageShown = false
-              main.removeCallbacks(heartbeats)
-              mic?.close()
-              mic = null
-              signedIn?.complete(false)
-              signedIn = null
-              disconnect()
+              Log.i(TAG, "${arm.side}: disconnected (status $status, try ${arm.retries + 1} of $MOST_RETRIES)")
+              drop(arm)
+              val session = signedIn ?: return@post
+              if (arm.retries >= MOST_RETRIES) return@post end()
+              arm.retries++
+              // Signed in already: the page and microphone wait for the arm, for a while.
+              if (session.isCompleted && !recovering) {
+                recovering = true
+                main.postDelayed(lost, RECOVER_MS)
+              }
+              // Status 133 and the like: connecting again a moment later usually works.
+              main.postDelayed({ if (signedIn === session) arms()?.let { connect(arm, if (arm === left) it.first else it.second) } ?: end() }, RETRY_MS * arm.retries)
             }
           }
         }
@@ -262,9 +340,10 @@ class G2Link(context: Context) : GlassesSource {
             }
             enqueue(arm) {
               arm.ready = arm.write != null
+              if (arm.ready) arm.retries = 0
               arm.busy = false
               runNext(arm)
-              if (left.ready && right.ready) signIn()
+              if (left.ready && right.ready) if (recovering) resume() else signIn()
             }
           }
         }
@@ -313,47 +392,56 @@ class G2Link(context: Context) : GlassesSource {
 
   private fun send(service: Byte, payload: ByteArray, reserveFlag: Boolean, toLeft: Boolean = false, toRight: Boolean = true) {
     val packets = g2Packets(syncId++ and 0xFF, service, payload, reserveFlag)
-    val l = left.gatt?.let { it to left.write }
-    val r = right.gatt?.let { it to right.write }
+    // Only to an arm set up: one still subscribing would turn the write away as busy.
+    val l = left.gatt?.takeIf { left.ready }?.let { it to left.write }
+    val r = right.gatt?.takeIf { right.ready }?.let { it to right.write }
     writer.execute {
       for (p in packets) {
-        if (toRight && r != null) write(r.first, r.second, p)
-        if (toLeft && l != null) write(l.first, l.second, p)
+        if (toRight && r != null) write(r.first, r.second, p, "R")
+        if (toLeft && l != null) write(l.first, l.second, p, "L")
         Thread.sleep(8)
       }
     }
   }
 
-  private fun write(gatt: BluetoothGatt, c: BluetoothGattCharacteristic?, packet: ByteArray) {
+  /**
+   * One packet, tried again while Android says the link is busy (its queue is shared with the Even
+   * app's): for about half a second, longer apart each time, before it is given up on.
+   */
+  private fun write(gatt: BluetoothGatt, c: BluetoothGattCharacteristic?, packet: ByteArray, side: String) {
     if (c == null) return
-    repeat(5) {
-      if (gatt.writeCharacteristic(c, packet, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == 0) return
-      Thread.sleep(8)
+    var status = BluetoothStatusCodes.SUCCESS
+    for (i in 0 until 11) {
+      // A connection closed meanwhile (the arm dropped) throws: nothing to try again.
+      status = runCatching { gatt.writeCharacteristic(c, packet, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) }.getOrElse { return }
+      if (status == BluetoothStatusCodes.SUCCESS) return
+      Thread.sleep(minOf(8L shl i, 64L))
     }
-    Log.w(TAG, "a write to the glasses was dropped")
+    Log.w(TAG, "$side: a write to the glasses was dropped (status $status)")
   }
 
   /** As the Even app does, as far as Jarvis needs: both arms, the right taking commands, the time. */
-  private fun signIn() {
-    val signing = signedIn ?: return
-    if (signing.isCompleted) return
+  private fun handshake(then: () -> Unit) {
     send(G2Service.DEVICE_SETTINGS, DevSettings.auth(nextMagic()), false, toLeft = true, toRight = false)
     main.postDelayed({ send(G2Service.DEVICE_SETTINGS, DevSettings.auth(nextMagic()), false) }, 200)
     main.postDelayed({ send(G2Service.DEVICE_SETTINGS, DevSettings.rightTakesCommands(nextMagic()), false) }, 400)
     main.postDelayed({ send(G2Service.DEVICE_SETTINGS, DevSettings.timeSync(nextMagic()), false, toLeft = true) }, 600)
-    main.postDelayed(
-        {
-          if (signedIn === signing) {
-            Log.i(TAG, "signed in")
-            pageShown = false
-            main.removeCallbacks(heartbeats)
-            main.postDelayed(heartbeats, 5_000)
-            send(G2Service.G2_SETTING, G2Setting.ask(nextMagic()), true)
-            signing.complete(true)
-          }
-        },
-        800,
-    )
+    main.postDelayed(then, 800)
+  }
+
+  private fun signIn() {
+    val signing = signedIn ?: return
+    if (signing.isCompleted) return
+    handshake {
+      if (signedIn === signing) {
+        Log.i(TAG, "signed in")
+        pageShown = false
+        main.removeCallbacks(heartbeats)
+        main.postDelayed(heartbeats, 5_000)
+        send(G2Service.G2_SETTING, G2Setting.ask(nextMagic()), true)
+        signing.complete(true)
+      }
+    }
   }
 
   private val heartbeats =
@@ -393,6 +481,8 @@ class G2Link(context: Context) : GlassesSource {
     }
     val touch = g2Touch(payload) ?: return
     Log.i(TAG, "touch: $touch")
+    // The page lost with an arm that is coming back: it is drawn again then (resume).
+    if (touch == G2Touch.CLOSED && recovering) return
     if (touch == G2Touch.CLOSED) pageShown = false
     _touches.tryEmit(touch)
   }
@@ -401,5 +491,10 @@ class G2Link(context: Context) : GlassesSource {
     const val TAG = "G2"
     /** How long a battery reading is shown for: it is only heard while an alert is up. */
     const val FRESH_MS = 30 * 60_000L
+    /** Connections tried for an arm that dropped, a little longer apart each time. */
+    const val MOST_RETRIES = 3
+    const val RETRY_MS = 600L
+    /** How long the page and microphone wait for an arm that dropped. */
+    const val RECOVER_MS = 8_000L
   }
 }

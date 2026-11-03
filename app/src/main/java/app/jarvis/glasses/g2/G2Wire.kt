@@ -191,6 +191,23 @@ fun g2Info(payload: ByteArray): G2Info? {
   return G2Info(battery, (f[13] as? Int)?.let { it != 0 }, firmware)
 }
 
+/**
+ * One text box on the display, at [x], [y] and [w] × [h] pixels, with container id [id] (from 1;
+ * 0 takes the touches). A [border] draws a rounded frame with room inside it.
+ */
+data class G2Box(val id: Int, val x: Int, val y: Int, val w: Int, val h: Int, val text: String, val border: Boolean = false) {
+  companion object {
+    /** [text] filling the display, framed. */
+    fun full(text: String) = G2Box(1, 0, 0, EvenHub.WIDTH, EvenHub.HEIGHT, text, border = true)
+  }
+}
+
+/**
+ * Whether a change to one box's words is sent as only that ([EvenHub.updateText]) rather than the
+ * page built again. Off until it is tried on the glasses: rebuilding is what is known to work.
+ */
+const val G2_PARTIAL_UPDATES = false
+
 /** EvenHub messages (service 0xE0): the page an app draws, and its mic. */
 object EvenHub {
   const val WIDTH = 576
@@ -206,23 +223,23 @@ object EvenHub {
           .int(9, id).string(10, "c$id").int(11, if (capture) 1 else 0).string(12, content)
           .build()
 
+  /** A page of [content] filling the display. */
+  fun page(content: String, first: Boolean, magic: Int): ByteArray = page(listOf(G2Box.full(content)), first, magic)
+
   /**
-   * A page of [content] filling the display. Container 0 is a 1×1 empty one that takes the touches,
-   * as MentraOS does, so no visible container carries the flag.
+   * A page of [boxes]. Container 0 is a 1×1 empty one that takes the touches, as MentraOS does, so
+   * no visible container carries the flag.
    */
-  fun page(content: String, first: Boolean, magic: Int): ByteArray {
-    val containers =
-        Proto()
-            .int(1, 2)
-            .bytes(3, text(0, 0, 0, 1, 1, "", capture = true))
-            .bytes(3, text(1, 0, 0, WIDTH, HEIGHT, content, capture = false, border = 1))
-            .build()
-    return if (first) message(0, 3, containers, magic) else message(7, 7, containers, magic)
+  fun page(boxes: List<G2Box>, first: Boolean, magic: Int): ByteArray {
+    val containers = Proto().int(1, boxes.size + 1).bytes(3, text(0, 0, 0, 1, 1, "", capture = true))
+    for (b in boxes) containers.bytes(3, text(b.id, b.x, b.y, b.w, b.h, b.text, capture = false, border = if (b.border) 1 else 0))
+    return if (first) message(0, 3, containers.build(), magic) else message(7, 7, containers.build(), magic)
   }
 
-  fun updateText(content: String): ByteArray {
+  /** Container [id]'s words replaced, the rest of the page as it is. */
+  fun updateText(id: Int, content: String, magic: Int = 0): ByteArray {
     val bytes = content.toByteArray(Charsets.UTF_8)
-    return message(5, 9, Proto().int(1, 1).int(3, 0).int(4, bytes.size).bytes(5, bytes).build())
+    return message(5, 9, Proto().int(1, id).string(2, "c$id").int(3, 0).int(4, bytes.size).bytes(5, bytes).build(), magic)
   }
 
   fun shutdown() = message(9, 11, Proto().int(1, 0).build())

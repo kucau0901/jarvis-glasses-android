@@ -1,21 +1,22 @@
 package app.jarvis.glasses.g2
 
-import app.jarvis.glasses.hub.Said
-
 /** What Jarvis's own screen on the G2 offers. */
 enum class G2Choice(val label: String) {
-  TALK("Talk to Jarvis"),
+  CHAT("Chat with Jarvis"),
   ALERTS("Latest alerts"),
   CLOSE("Close"),
 }
 
 /**
  * Jarvis's own screen on the G2, opened by asking for it ("open Jarvis"): a choice moved with a
- * swipe on the ring or touchpad, opened with a tap.
+ * swipe on the ring or touchpad, opened with a tap. Alerts arriving meanwhile are counted on it.
  */
-class G2Menu {
+class G2Menu(private val clock: () -> String = ::g2Clock) {
   private val choices = G2Choice.entries
   private var at = 0
+
+  /** Alerts that arrived while the menu was up, not looked at yet. */
+  var unseen = 0
 
   val chosen: G2Choice
     get() = choices[at]
@@ -28,13 +29,12 @@ class G2Menu {
     if (at < choices.size - 1) at++
   }
 
-  /** As the display shows it; plain ASCII, which the glasses' font has. */
-  fun text(): String =
-      "Jarvis\n\n" + choices.mapIndexed { i, c -> (if (i == at) "> " else "   ") + c.label }.joinToString("\n") + "\n\n[swipe: choose | tap: open]"
-}
+  /** The choices as the display shows them, the chosen one marked; plain ASCII, which the glasses' font has. */
+  fun lines(): List<String> =
+      choices.mapIndexed { i, c ->
+        val label = if (c == G2Choice.ALERTS && unseen > 0) "${c.label} ($unseen new)" else c.label
+        (if (i == at) ">  " else "    ") + label
+      }
 
-/** The latest [most] of what alerts said in Chat, newest first, each as Chat reads it ("Title: text"). */
-fun g2AlertList(said: List<Said>, most: Int = 5): String {
-  val alerts = said.filter { it.role == "assistant" && (it.alert != null || it.routine != null || it.job != null) }.takeLast(most).reversed()
-  return if (alerts.isEmpty()) "No alerts yet." else alerts.joinToString("\n\n") { it.shown }
+  fun page(): List<G2Box> = g2Page("JARVIS  |  ${clock()}", listOf("") + lines(), "swipe: choose  |  tap: open")
 }

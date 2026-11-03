@@ -70,7 +70,7 @@ class JarvisApp : Application() {
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       val g2l = G2Link(this).also { g2Link = it }
-      g2 = G2Alerts(scope, g2l, client, chat, followUps = { prefs.followUps }, said = { runCatching { chat.refresh() }; chat.said.value })
+      g2 = G2Alerts(scope, g2l, client, chat, followUps = { prefs.followUps }, said = chat.said, refresh = chat::refresh)
     }
     glasses = g2Link?.let { g -> combine(link.glasses, g.glasses) { a, b -> a + b }.stateIn(scope, SharingStarted.Eagerly, link.glasses.value) } ?: link.glasses
     // In front of someone: the glasses say an alert, or a notification shows it. Jarvis waits for
@@ -138,6 +138,9 @@ class JarvisApp : Application() {
     chat.arrived(alert)
     val talk = alert.talk && prefs.speakAlerts
     if (live.state.value == LiveVoice.State.LIVE) return (talk && live.tell(alert)) || notifier.show(alert)
+    // Jarvis open on a G2: shown there, in its chat. A notification would be put on the glasses
+    // by the Even app, over Jarvis's page, while the wearer may be replying.
+    if (prefs.g2 && g2?.take(alert) == true) return true
     // Not into glasses that aren't being worn: on a G2's display when one is with the phone, else
     // a notification. With a G2 there too, Ray-Ban glasses have it only when they say they are
     // worn: left open on a desk they would say it to nobody and listen, while the G2 shows it with
