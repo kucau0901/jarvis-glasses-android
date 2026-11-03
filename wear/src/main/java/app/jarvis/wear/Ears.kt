@@ -16,7 +16,13 @@ import kotlinx.coroutines.flow.StateFlow
  * waits on the same move into a shared module. [refused] is called instead when the recogniser
  * won't serve this app at all. Call from the main thread.
  */
-class Ears(private val context: Context, private val heard: (String) -> Unit, private val refused: () -> Unit) {
+class Ears(
+    private val context: Context,
+    private val heard: (String) -> Unit,
+    private val refused: () -> Unit,
+    /** Nothing was heard this time (silence, or nothing it could make out), after [State.Failed] is set. */
+    private val missed: () -> Unit = {},
+) {
   sealed interface State {
     data object Idle : State
 
@@ -90,6 +96,7 @@ class Ears(private val context: Context, private val heard: (String) -> Unit, pr
         refused()
       } else {
         _state.value = State.Failed(why(error), error)
+        missed()
       }
     }
 
@@ -105,7 +112,10 @@ class Ears(private val context: Context, private val heard: (String) -> Unit, pr
       recognizer?.destroy()
       recognizer = null
       _state.value = State.Idle
-      if (words.isBlank()) _state.value = State.Failed(why(SpeechRecognizer.ERROR_NO_MATCH), SpeechRecognizer.ERROR_NO_MATCH) else heard(words)
+      if (words.isBlank()) {
+        _state.value = State.Failed(why(SpeechRecognizer.ERROR_NO_MATCH), SpeechRecognizer.ERROR_NO_MATCH)
+        missed()
+      } else heard(words)
     }
 
     override fun onEvent(eventType: Int, params: Bundle?) = Unit

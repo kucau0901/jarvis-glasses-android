@@ -19,6 +19,7 @@ class WatchLinkTest {
         listOf(
             Hello("h1"),
             Ask("q1", "hi", "w_1"),
+            Ask("q2", "and tomorrow", "w_1", openMic = true),
             Stop("q1"),
             Fetch("f1", Fetch.HOME),
             Act("a1", "home", "light.hall", "level:40"),

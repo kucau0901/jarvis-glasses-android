@@ -24,17 +24,20 @@ import kotlinx.coroutines.launch
 /**
  * Jarvis on the watch: opening it starts listening at once, from its icon, the Home key's double
  * press, or as the watch's assistant ([AssistActivity]). The words go to the phone app, which asks
- * Jarvis; the answer shows, and is said. Tap to ask again, or to stop.
+ * Jarvis; the answer shows, and is said, and the watch listens again for a follow-up ([Talking])
+ * until the conversation ends. Tap to ask again, or to stop.
  *
  * Below the Talk screen are Home and the approvals waiting ([WristScreens]), each a swipe back from
  * the last. The Tile and the complications open those straight away ([OPEN]), without listening.
  */
 open class MainActivity : ComponentActivity() {
   private lateinit var ears: Ears
+  private lateinit var talking: Talking
 
   private var phoneSays by mutableStateOf<PhoneSays>(PhoneSays.Checking)
   private var earsSay by mutableStateOf<String?>(null)
   private var speak by mutableStateOf(true)
+  private var followUps by mutableStateOf(true)
   private var checking: Job? = null
   /** Where an intent asked to go, once the screens are there to go to. */
   private var goTo by mutableStateOf<String?>(null)
@@ -48,7 +51,16 @@ open class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     val app = watch
     speak = app.prefs.speak
-    ears = Ears(this, heard = { app.asking.ask(it) }, refused = { earsSay = "The watch's speech recogniser won't listen for Jarvis" })
+    followUps = app.prefs.followUps
+    ears =
+        Ears(
+            this,
+            heard = { talking.heard(it) },
+            refused = { earsSay = "The watch's speech recogniser won't listen for Jarvis" },
+            // A follow-up that didn't come ends the conversation quietly, the answer left showing.
+            missed = { if (talking.missed()) ears.stop() },
+        )
+    talking = Talking(lifecycleScope, app.asking.state, app.speaker.speaking, followUps = { app.prefs.followUps }, ask = app.asking::ask, listen = { ears.listen() })
     setContent {
       val heard by ears.state.collectAsStateWithLifecycle()
       val asked by app.asking.state.collectAsStateWithLifecycle()
@@ -59,6 +71,7 @@ open class MainActivity : ComponentActivity() {
         if (busy) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
       }
       val counts by app.wrist.counts.collectAsStateWithLifecycle()
+      val following by talking.following.collectAsStateWithLifecycle()
       val nav = rememberSwipeDismissableNavController()
       LaunchedEffect(goTo) {
         val to = goTo ?: return@LaunchedEffect
@@ -74,6 +87,12 @@ open class MainActivity : ComponentActivity() {
               phone = phoneSays,
               trouble = earsSay,
               speak = speak,
+              following = following,
+              followUps = followUps,
+              onFollowUps = {
+                app.prefs.followUps = it
+                followUps = it
+              },
               approvals = counts.approvals,
               onTalk = ::talk,
               onSpeak = {
@@ -102,9 +121,10 @@ open class MainActivity : ComponentActivity() {
   private fun opened(intent: Intent) {
     val open = intent.getStringExtra(OPEN)
     when {
+      // Always a new question: not the button's "done" or "stop", whatever was going on.
       open == null -> {
         goTo = TALK
-        talk()
+        fresh()
       }
       open == MENU -> goTo = TALK
       open == HOME || open == APPROVALS -> goTo = open
@@ -127,28 +147,49 @@ open class MainActivity : ComponentActivity() {
         }
   }
 
-  override fun onStop() {
+  override fun onPause() {
+    // The other screen of Jarvis's may be coming: one recogniser at a time.
+    talking.end()
     ears.stop()
+    super.onPause()
+  }
+
+  override fun onStop() {
     // A late answer would otherwise overwrite the next screen's own check.
     checking?.cancel()
     watch.screenStopped()
     super.onStop()
   }
 
-  /** The one button: listen, or while listening, done; while answering, stop. */
+  /**
+   * The one button: listen; while listening for a question, done; while listening for a follow-up,
+   * answering or speaking, stop, and the conversation with it.
+   */
   private fun talk() {
     earsSay = null
     when {
+      ears.state.value is Ears.State.Listening && talking.following.value -> {
+        talking.end()
+        ears.stop()
+      }
       ears.state.value is Ears.State.Listening -> ears.finish()
-      watch.asking.state.value is Asking.State.Asked || watch.speaker.speaking.value -> watch.asking.stop()
-      checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED -> mic.launch(Manifest.permission.RECORD_AUDIO)
-      else -> listen()
+      watch.asking.state.value is Asking.State.Asked || watch.speaker.speaking.value -> {
+        talking.end()
+        watch.asking.stop()
+      }
+      else -> fresh()
     }
+  }
+
+  /** A new opening question, once the microphone is allowed. */
+  private fun fresh() {
+    earsSay = null
+    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) mic.launch(Manifest.permission.RECORD_AUDIO) else listen()
   }
 
   private fun listen() {
     watch.asking.stop()
-    ears.listen()
+    talking.start()
   }
 
   companion object {

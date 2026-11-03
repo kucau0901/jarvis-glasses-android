@@ -59,7 +59,8 @@ class Asking(
   /** Whether the phone can answer, and as whom: null when it isn't in reach. */
   suspend fun hello(): Reply.Ready? = phone.request(Hello(newId()), firstReplyMs) as? Reply.Ready
 
-  fun ask(question: String) {
+  /** [openMic]: a follow-up, heard by the microphone opening again after an answer ([Ask.openMic]). */
+  fun ask(question: String, openMic: Boolean = false) {
     stop()
     val id = newId()
     asking = id
@@ -102,7 +103,7 @@ class Asking(
                 }
               }
           try {
-            if (!phone.send(Ask(id, question, origin(), aloud, CHARS))) {
+            if (!phone.send(Ask(id, question, origin(), aloud, CHARS, openMic))) {
               _state.value = State.Failed(question, "The phone isn't in reach, or hasn't the Jarvis app")
               return@launch
             }

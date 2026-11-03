@@ -65,6 +65,11 @@ class WatchPrefs(context: Context) : Wrist.Keep {
     get() = p.getString("pinned", "").orEmpty().split('\n').filter { it.isNotEmpty() }
     set(v) = p.edit().putString("pinned", v.joinToString("\n")).apply()
 
+  /** After an answer, listen again for a follow-up, as Talk does on the phone. */
+  var followUps: Boolean
+    get() = p.getBoolean("followUps", true)
+    set(v) = p.edit().putBoolean("followUps", v).apply()
+
   /** Answers said aloud, as well as shown. */
   var speak: Boolean
     get() = p.getBoolean("speak", true)

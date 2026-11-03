@@ -82,7 +82,7 @@ class JarvisApp : Application() {
             signedInAs = { if (prefs.isSetUp) prefs.signedInAs else null },
             ask = { q, onEvent ->
               runCatching { chat.refresh() }
-              client.ask(q.text, chat.recent(), null, if (q.speak) null else q.chars, from = JarvisClient.origin(q.origin, "Watch"), onEvent = onEvent)
+              client.ask(q.text, chat.recent(), null, if (q.speak) null else q.chars, openMic = q.openMic, from = JarvisClient.origin(q.origin, "Watch"), onEvent = onEvent)
             },
             keep = { chat.keep(it) },
             send = { node, r -> WatchService.send(this, node, r) },

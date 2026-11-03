@@ -111,7 +111,8 @@ sealed interface FromWatch {
 /**
  * A question heard on the watch. [origin] is the watch's own id among the person's screens
  * (`w_…`). [speak]: answered aloud, the voice sent back with it; otherwise in writing only, to fit
- * about [chars] characters on the watch's round screen.
+ * about [chars] characters on the watch's round screen. [openMic]: a follow-up, heard by the
+ * microphone opening again after an answer, so Jarvis answers only what was said to it.
  */
 @Serializable
 data class Ask(
@@ -120,6 +121,7 @@ data class Ask(
     val origin: String,
     val speak: Boolean = true,
     val chars: Int = 300,
+    val openMic: Boolean = false,
 ) : FromWatch
 
 /** The question [id] is no longer wanted: the phone hangs up on Jarvis. */

@@ -46,6 +46,9 @@ fun WatchScreen(
     phone: PhoneSays,
     trouble: String?,
     speak: Boolean,
+    following: Boolean,
+    followUps: Boolean,
+    onFollowUps: (Boolean) -> Unit,
     approvals: Int,
     onTalk: () -> Unit,
     onSpeak: (Boolean) -> Unit,
@@ -84,7 +87,9 @@ fun WatchScreen(
         ) {
           item { DotMatrix(status, color = c.hudInk, dot = 1.4.dp, ghost = c.hud) }
           if (listening != null) item { Level(listening.level, c.hudInk, c.hud) }
-          if (question != null) item { Said(question, c.dim, 13) }
+          // Listening again after an answer, before a word of it: what can be said.
+          if (following && listening != null && listening.words.isBlank()) item { Said("Go on, or say thanks", c.dim, 12) }
+          else if (question != null) item { Said(question, c.dim, 13) }
           when (asked) {
             is Asking.State.Asked -> asked.progress?.let { item { Said("$it…", c.dim, 12) } }
             is Asking.State.Answered ->
@@ -101,7 +106,12 @@ fun WatchScreen(
           (heard as? Ears.State.Failed)?.let { f -> item { Said(f.why.lowercase().replaceFirstChar { it.uppercase() }, c.dim, 12) } }
           trouble?.let { item { Said(it, c.danger, 12) } }
           item { TalkButton(busy = listening != null || asked is Asking.State.Asked || speaking, ink = c.ink, tile = c.tile, line = c.line, onTalk = onTalk) }
-          item { VoiceChip(speak, c.dim, c.line, onSpeak) }
+          item {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+              VoiceChip(if (speak) "Voice on" else "Voice off", c.dim, c.line) { onSpeak(!speak) }
+              VoiceChip(if (followUps) "Follow-ups on" else "Follow-ups off", c.dim, c.line) { onFollowUps(!followUps) }
+            }
+          }
           item { Chip("Home", c.ink, c.tile, onHome) }
           item { Chip(if (approvals > 0) "Approvals · $approvals" else "Approvals", if (approvals > 0) c.tintWarm else c.ink, c.tile, onApprovals) }
           item { Said(phoneLine(phone), c.dim, 11) }
@@ -155,12 +165,12 @@ internal fun Chip(label: String, ink: Color, tile: Color, onClick: () -> Unit) {
   }
 }
 
-/** Spoken and shown, or shown only. */
+/** A switch as a small outlined pill: answers spoken, follow-ups listened for. */
 @Composable
-private fun VoiceChip(speak: Boolean, dim: Color, line: Color, onSpeak: (Boolean) -> Unit) {
+private fun VoiceChip(label: String, dim: Color, line: Color, onClick: () -> Unit) {
   Row(
-      Modifier.clip(RoundedCornerShape(50)).border(1.dp, line, RoundedCornerShape(50)).clickable { onSpeak(!speak) }.padding(horizontal = 12.dp, vertical = 5.dp),
+      Modifier.clip(RoundedCornerShape(50)).border(1.dp, line, RoundedCornerShape(50)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 5.dp),
   ) {
-    Text(if (speak) "Voice on" else "Voice off", color = dim, fontSize = 11.sp)
+    Text(label, color = dim, fontSize = 11.sp, maxLines = 1)
   }
 }
