@@ -69,6 +69,13 @@ class G2Alerts(
   fun openMenu(): Boolean =
       session({ Log.w(TAG, "the G2 couldn't be signed in to; its menu isn't shown") }) {
         val menu = G2Menu()
+        // The battery as the glasses tell it, a moment after signing in: on the menu as it comes.
+        val battery = launch {
+          link.glasses.collect { g ->
+            menu.battery = g.firstOrNull()?.battery
+            if (this@G2Alerts.menu === menu) link.show(menu.page())
+          }
+        }
         while (true) {
           this@G2Alerts.menu = menu
           val choice = choose(menu)
@@ -95,6 +102,7 @@ class G2Alerts(
           }
           chat.hide()
         }
+        battery.cancel()
       }
 
   /**

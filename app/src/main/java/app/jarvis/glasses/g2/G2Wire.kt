@@ -193,12 +193,24 @@ fun g2Info(payload: ByteArray): G2Info? {
 
 /**
  * One text box on the display, at [x], [y] and [w] × [h] pixels, with container id [id] (from 1;
- * 0 takes the touches). A [border] draws a rounded frame with room inside it.
+ * 0 takes the touches). A [border] (its width in pixels, up to 5) draws a rounded frame [shade]
+ * bright (0–15) with [padding] inside it. Frames and text are drawn by the glasses themselves, so
+ * they show at once, where a picture takes most of a second.
  */
-data class G2Box(val id: Int, val x: Int, val y: Int, val w: Int, val h: Int, val text: String, val border: Boolean = false) {
+data class G2Box(
+    val id: Int,
+    val x: Int,
+    val y: Int,
+    val w: Int,
+    val h: Int,
+    val text: String,
+    val border: Int = 0,
+    val shade: Int = 15,
+    val padding: Int = 8,
+) {
   companion object {
     /** [text] filling the display, framed. */
-    fun full(text: String) = G2Box(1, 0, 0, EvenHub.WIDTH, EvenHub.HEIGHT, text, border = true)
+    fun full(text: String) = G2Box(1, 0, 0, EvenHub.WIDTH, EvenHub.HEIGHT, text, border = 1)
   }
 }
 
@@ -216,10 +228,10 @@ object EvenHub {
   private fun message(cmd: Int, slot: Int, body: ByteArray, magic: Int = 0) =
       Proto().int(1, cmd).int(2, magic).bytes(slot, body).build()
 
-  private fun text(id: Int, x: Int, y: Int, w: Int, h: Int, content: String, capture: Boolean, border: Int = 0) =
+  private fun text(id: Int, x: Int, y: Int, w: Int, h: Int, content: String, capture: Boolean, border: Int = 0, shade: Int = 15, padding: Int = 8) =
       Proto()
           .int(1, x).int(2, y).int(3, w).int(4, h)
-          .int(5, border).int(6, if (border > 0) 15 else 0).int(7, if (border > 0) 6 else 0).int(8, if (border > 0) 8 else 0)
+          .int(5, border).int(6, if (border > 0) shade else 0).int(7, if (border > 0) 6 else 0).int(8, if (border > 0) padding else 0)
           .int(9, id).string(10, "c$id").int(11, if (capture) 1 else 0).string(12, content)
           .build()
 
@@ -232,7 +244,7 @@ object EvenHub {
    */
   fun page(boxes: List<G2Box>, first: Boolean, magic: Int): ByteArray {
     val containers = Proto().int(1, boxes.size + 1).bytes(3, text(0, 0, 0, 1, 1, "", capture = true))
-    for (b in boxes) containers.bytes(3, text(b.id, b.x, b.y, b.w, b.h, b.text, capture = false, border = if (b.border) 1 else 0))
+    for (b in boxes) containers.bytes(3, text(b.id, b.x, b.y, b.w, b.h, b.text, capture = false, border = b.border, shade = b.shade, padding = b.padding))
     return if (first) message(0, 3, containers.build(), magic) else message(7, 7, containers.build(), magic)
   }
 

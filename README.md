@@ -124,9 +124,11 @@ on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by ste
   to follow up; untouched, it goes after a minute. Another alert arriving meanwhile joins the chat
   rather than coming as a notification. Home shows the G2, and its battery from the last time an
   alert was up.
-  **"Hey Even, open Jarvis"** shows Jarvis's own menu on the G2: swipe to choose, tap to open
-  *Chat with Jarvis* (tap again to talk), *Latest alerts* (counting any that arrive meanwhile; tap
-  to reply) or *Close*. Leaving the chat goes back to the menu.
+  **"Hey Even, open Jarvis"** shows Jarvis's own screen on the G2: three tiles under the glasses'
+  battery and the time, the chosen one framed bright. Swipe to choose, tap to open **Chat** (tap
+  again to talk), **Alerts** (counting any that arrive meanwhile; tap to reply) or **Close**.
+  Leaving the chat goes back to it. It is only frames and the font's symbols, drawn by the glasses
+  themselves, so a swipe shows at once.
   The microphone never opens by itself: the G2 can't say whether it is being worn. The Even app
   stays connected all along, and has the glasses back as soon as the chat closes, so "Hey Even"
   and its own notifications go on working. An arm that drops off Bluetooth for a moment is

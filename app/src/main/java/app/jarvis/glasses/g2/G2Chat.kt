@@ -77,7 +77,7 @@ fun g2Window(lines: List<String>, up: Int, rows: Int = G2_ROWS): List<String> {
 fun g2Page(header: String, body: List<String>, footer: String): List<G2Box> =
     listOf(
         G2Box(1, 8, 0, EvenHub.WIDTH - 16, 36, header),
-        G2Box(2, 0, 38, EvenHub.WIDTH, 212, body.joinToString("\n"), border = true),
+        G2Box(2, 0, 38, EvenHub.WIDTH, 212, body.joinToString("\n"), border = 1),
         G2Box(3, 8, 252, EvenHub.WIDTH - 16, 36, footer),
     )
 
