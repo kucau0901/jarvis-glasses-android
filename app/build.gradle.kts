@@ -69,6 +69,11 @@ dependencies {
   implementation(libs.stream.webrtc)
   implementation(libs.mwdat.core)
   implementation(libs.mwdat.camera)
+  implementation(libs.androidx.camera.camera2)
+  implementation(libs.androidx.camera.lifecycle)
+  implementation(libs.androidx.camera.video)
+  implementation(libs.androidx.camera.view)
+  implementation(libs.androidx.camera.effects)
   debugImplementation(libs.mwdat.mockdevice)
 
   testImplementation(libs.junit)

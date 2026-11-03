@@ -12,6 +12,7 @@ okhttp = "4.12.0"
 junit = "4.13.2"
 mwdat = "1.0.1"
 webrtc = "1.3.10"
+camerax = "1.4.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -31,6 +32,12 @@ okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver",
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 # WebRTC for live voice (GPT-Live through Jarvis's /api/session).
 stream-webrtc = { group = "io.getstream", name = "stream-webrtc-android", version.ref = "webrtc" }
+# CameraX for the G2 demo camera: the phone's camera filmed with the G2 screen drawn in (camera-effects' OverlayEffect).
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-video = { group = "androidx.camera", name = "camera-video", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+androidx-camera-effects = { group = "androidx.camera", name = "camera-effects", version.ref = "camerax" }
 # Meta Wearables Device Access Toolkit: registration with Meta AI, the device session, the
 # glasses camera, and "Hey Meta" voice invocations (in core). Mock Device Kit for testing.
 mwdat-core = { group = "com.meta.wearable", name = "mwdat-core", version.ref = "mwdat" }

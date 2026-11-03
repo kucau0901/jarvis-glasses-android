@@ -134,6 +134,11 @@ on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by ste
   and its own notifications go on working. An arm that drops off Bluetooth for a moment is
   connected again and the chat put back; only after 8 s is it given up on. **Settings → Voice →
   Show alerts on Even G2 glasses** switches it off.
+  **Showing it to others:** **Settings → Voice → Record a G2 demo** films with the phone's camera
+  and draws what the G2 shows over the middle of the video as it changes, so one video has you
+  and your glasses' display in step, nothing to edit. It is saved to Movies/Jarvis, to share from
+  there. The G2 screen is drawn from what the app sends the glasses, in the phone's font, so it is
+  close to the glasses' look rather than a photo of it.
 
 ## What it hears
 

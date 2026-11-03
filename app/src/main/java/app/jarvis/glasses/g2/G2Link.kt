@@ -68,8 +68,16 @@ class G2Link(context: Context) : GlassesSource {
   private var magic = 0
   private var signedIn: CompletableDeferred<Boolean>? = null
   private var pageShown = false
+  private val _screen = MutableStateFlow<List<G2Box>?>(null)
+  /** What Jarvis has on the glasses now, null when nothing: for the demo camera to draw too ([drawG2]). */
+  val screen: StateFlow<List<G2Box>?> = _screen
+
   /** What the page shows, to draw it again after an arm comes back. */
-  private var shown: List<G2Box>? = null
+  private var shown: List<G2Box>?
+    get() = _screen.value
+    set(v) {
+      _screen.value = v
+    }
   /** Signed in, and an arm dropped: being connected again, not yet given up on. */
   private var recovering = false
   private var mic: Channel<ByteArray>? = null

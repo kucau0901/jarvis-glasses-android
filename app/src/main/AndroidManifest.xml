@@ -5,6 +5,9 @@
     <!-- The glasses: DAT sessions and the headset ride Bluetooth Classic. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- The G2 demo camera only (DemoActivity): the phone's camera, filmed with the G2 screen drawn in. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Alerts and conversations with the phone in a pocket (JarvisService). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -45,6 +48,11 @@
         <receiver
             android:name=".alerts.ReplyReceiver"
             android:exported="false" />
+
+        <activity
+            android:name=".DemoActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
 
         <activity
             android:name=".MainActivity"
