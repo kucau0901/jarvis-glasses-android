@@ -1,5 +1,6 @@
 package app.jarvis.glasses.live
 
+import app.jarvis.glasses.chat.Shown
 import app.jarvis.glasses.conversation.Phrases
 import app.jarvis.glasses.jarvis.SseParser
 import app.jarvis.glasses.jarvis.Turn
@@ -37,12 +38,14 @@ import kotlinx.serialization.json.put
  * Each turn kept is handed to [onSaid] once its exchange is over, when the wearer speaks again or
  * the session ends ([finish]), and not while a delegation for it is at work, to be kept with
  * Chat's as the web app keeps each row as it settles.
+ * What Jarvis puts on the screen meanwhile (a map, a camera) goes to [onShown], for Chat to draw.
  */
 class LiveRelay(
     private val scope: CoroutineScope,
     private val delegate: suspend (id: String, transcript: List<Turn>, onEvent: suspend (JsonObject) -> Unit) -> Unit,
     private val send: (String) -> Unit,
     private val onSaid: (Turn) -> Unit = {},
+    private val onShown: (Shown) -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis,
 ) {
   private val _turns = MutableStateFlow<List<Turn>>(emptyList())
@@ -242,6 +245,7 @@ class LiveRelay(
       delegate(id, transcript) { ev ->
         when (ev.str("type")) {
           "progress" -> ev.str("text")?.let { send(thinking("Progress: $it.", id)) }
+          "display" -> Shown.from(ev)?.let(onShown)
           "result", "error" -> {
             answered = true
             val text = ev.str("text").orEmpty()

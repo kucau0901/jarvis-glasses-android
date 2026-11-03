@@ -3,6 +3,7 @@ package app.jarvis.glasses.live
 import android.content.Context
 import android.util.Log
 import app.jarvis.glasses.audio.GlassesAudio
+import app.jarvis.glasses.chat.Shown
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.JarvisClient
 import app.jarvis.glasses.jarvis.Turn
@@ -82,18 +83,30 @@ class LiveVoice(
 
   /**
    * Opens a session from [history]; [onFail] when it can't be opened ([note] says why). [onSaid]
-   * gets each turn said in it as it is finished. With [opening], it starts by Jarvis saying that
-   * alert, then listens for the reply.
+   * gets each turn said in it as it is finished, [onShown] what Jarvis puts on the screen, and
+   * [onEnd] is told once the session has ended and its last turn is handed on. With [opening], it
+   * starts by Jarvis saying that alert, then listens for the reply.
    */
   @Synchronized
-  fun start(history: List<Turn>, onFail: () -> Unit, onSaid: (Turn) -> Unit, opening: Alert? = null): Boolean {
+  fun start(
+      history: List<Turn>,
+      onFail: () -> Unit,
+      onSaid: (Turn) -> Unit,
+      opening: Alert? = null,
+      onShown: (Shown) -> Unit = {},
+      onEnd: () -> Unit = {},
+  ): Boolean {
     if (job?.isActive == true) return false
     job = scope.launch {
-      run(history, opening, { why ->
-        Log.w(TAG, "could not open: $why")
-        _note.value = why
-        onFail()
-      }, onSaid)
+      try {
+        run(history, opening, { why ->
+          Log.w(TAG, "could not open: $why")
+          _note.value = why
+          onFail()
+        }, onSaid, onShown)
+      } finally {
+        onEnd()
+      }
     }
     return true
   }
@@ -110,7 +123,7 @@ class LiveVoice(
     job?.cancel()
   }
 
-  private suspend fun run(history: List<Turn>, opening: Alert?, onFail: (String) -> Unit, onSaid: (Turn) -> Unit) {
+  private suspend fun run(history: List<Turn>, opening: Alert?, onFail: (String) -> Unit, onSaid: (Turn) -> Unit, onShown: (Shown) -> Unit) {
     _state.value = State.CONNECTING
     _note.value = ""
     var pc: PeerConnection? = null
@@ -149,7 +162,7 @@ class LiveVoice(
       val r = LiveRelay(scope, client::delegate, send = { text ->
         // Its work can outlive the session, and a closed channel takes nothing.
         runCatching { channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray()), false)) }
-      }, onSaid = onSaid)
+      }, onSaid = onSaid, onShown = onShown)
       r.seed(history)
       relay = r
       first = null

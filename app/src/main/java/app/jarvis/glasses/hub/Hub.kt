@@ -28,6 +28,9 @@ class Hub(private val client: JarvisClient) {
   /** A locked session (423): someone's PIN is needed. */
   class Locked : Exception("This Jarvis profile is locked")
 
+  /** Jarvis's 429: a device's minute or day used up. Asking again only spends more of it. */
+  class TooMany : Exception("Too many requests just now")
+
   suspend fun me(): Me = get("/api/hub/me")
 
   /**
@@ -107,6 +110,20 @@ class Hub(private val client: JarvisClient) {
         }
       }
 
+  /** A picture Jarvis shows in Chat: a map, a camera's frame, one it made ([app.jarvis.glasses.chat.Shown]). */
+  suspend fun picture(path: String): ByteArray =
+      withContext(Dispatchers.IO) {
+        client.http.newCall(client.request(path).get().build()).execute().use { res ->
+          if (res.code == 429) throw TooMany()
+          if (!res.isSuccessful) throw JarvisClient.JarvisException(errorIn(res.body?.string().orEmpty()) ?: "Jarvis answered ${res.code}")
+          res.body?.bytes()?.takeIf { it.isNotEmpty() } ?: throw JarvisClient.JarvisException("Jarvis sent no picture")
+        }
+      }
+
+  /** A fresh link to a page Jarvis made (GET /api/page), to open in the browser. */
+  suspend fun pageLink(id: String): String =
+      get<PageLink>("/api/page?id=${enc(id)}").viewUrl.ifEmpty { throw JarvisClient.JarvisException("That page is gone") }
+
   /** Your panels in this order (their ids), as dragging them on the web keeps it: for you, on every screen. */
   suspend fun orderPanels(ids: List<String>): List<String> = post<OrderReply>("/api/hub/panels/order", orderBody(null, ids)).order
 
@@ -139,6 +156,7 @@ class Hub(private val client: JarvisClient) {
                         s.links?.let { links ->
                           put("links", buildJsonArray { for (l in links.take(6)) add(buildJsonObject { put("url", l.url); put("title", l.title) }) })
                         }
+                        s.page?.let { p -> put("page", buildJsonObject { put("id", p.id); put("title", p.title) }) }
                       },
                   )
                 }

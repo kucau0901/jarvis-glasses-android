@@ -134,6 +134,8 @@ class JarvisApp : Application() {
         chat.recent(),
         onFail = { conversation.start() },
         onSaid = { chat.keep(listOf(it)) },
+        onShown = chat::liveShowed,
+        onEnd = chat::liveEnded,
     )
   }
 
@@ -186,7 +188,7 @@ class JarvisApp : Application() {
     }
     val started =
         if (prefs.live) {
-          live.start(chat.recent(), onFail = { conversation.start(opening = alert) }, onSaid = { chat.keep(listOf(it)) }, opening = alert)
+          live.start(chat.recent(), onFail = { conversation.start(opening = alert) }, onSaid = { chat.keep(listOf(it)) }, opening = alert, onShown = chat::liveShowed, onEnd = chat::liveEnded)
         } else conversation.start(opening = alert)
     return notifier.show(alert, said = started) || started
   }

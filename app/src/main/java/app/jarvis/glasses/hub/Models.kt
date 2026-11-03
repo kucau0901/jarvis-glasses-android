@@ -158,10 +158,20 @@ data class Said(
     val alert: AlertFrom? = null,
     /** The bot that said it, an outside service added as a skill; or Jarvis's answer to its question. Only Jarvis says this. */
     val skill: SkillFrom? = null,
+    /** A page the answer made, drawn as a card under it (src/app/pageCard.ts there). */
+    val page: MadePage? = null,
 ) {
   /** Whose words Chat shows it under: its routine's, job's or alert's name (a bot's, for a skill's); none for Jarvis's own. */
   val from: String?
     get() = routine?.name ?: job?.name ?: alert?.title?.takeIf { it != "Jarvis" }
+
+  /**
+   * A page no answer took (one before an answer's last, or a failed answer's), kept as its own
+   * entry as the web's pageApart keeps it: drawn as its card alone, never told to the model
+   * (madePages.ts isApart there).
+   */
+  val apart: Boolean
+    get() = role == "assistant" && page != null && text == page.title && links.isNullOrEmpty()
 
   /** How it reads on a display: "Name: text", as Chat has it. */
   val shown: String
@@ -183,6 +193,9 @@ data class Said(
 @Serializable data class Link(val url: String, val title: String)
 
 @Serializable data class Named(val id: String, val name: String)
+
+/** A page Jarvis made (lib/pages.ts there): its id, to open it, and its title. */
+@Serializable data class MadePage(val id: String, val title: String)
 
 @Serializable data class AlertFrom(val source: String = "", val title: String = "")
 
@@ -216,6 +229,9 @@ private val SPACES = Regex("[\\s\\p{Z}\\u000B\\u0085\\uFEFF]+")
 private fun oneLine(s: String, max: Int) = s.replace(SPACES, " ").trim().replace("\"", "”").take(max)
 
 @Serializable data class Conversation(val said: List<Said> = emptyList())
+
+/** GET /api/page (routes/page.ts there): a fresh link to view the page by. */
+@Serializable data class PageLink(val title: String = "", val viewUrl: String = "")
 
 // Family messages (src/worker/lib/chat.ts)
 

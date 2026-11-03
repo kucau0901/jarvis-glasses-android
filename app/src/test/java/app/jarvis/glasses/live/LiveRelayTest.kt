@@ -1,5 +1,6 @@
 package app.jarvis.glasses.live
 
+import app.jarvis.glasses.chat.Shown
 import app.jarvis.glasses.jarvis.SseParser
 import app.jarvis.glasses.jarvis.Turn
 import kotlinx.coroutines.CompletableDeferred
@@ -30,6 +31,7 @@ class LiveRelayTest {
       said: MutableList<Turn> = mutableListOf(),
       /** What each delegation's stream says, by its id. */
       eventsFor: suspend (String) -> List<String> = { events },
+      shown: MutableList<Shown> = mutableListOf(),
   ) =
       LiveRelay(
           this,
@@ -39,6 +41,7 @@ class LiveRelayTest {
           },
           send = { sent.all += obj(it) },
           onSaid = { said += it },
+          onShown = { shown += it },
           now = { testScheduler.currentTime },
       )
 
@@ -372,6 +375,15 @@ class LiveRelayTest {
     assertEquals(listOf("Progress: Checking the calendar."), sent.of("session.thinking.append"))
     assertEquals(listOf("Two meetings."), sent.of("session.commentary.append"))
     assertEquals("d1", sent.all.last()["delegation_id"]!!.jsonPrimitive.content)
+  }
+
+  @Test
+  fun whatJarvisPutsOnTheScreenIsHandedOn() = runTest {
+    val shown = mutableListOf<Shown>()
+    val r = relay(Sent(), listOf("""{"type":"display","kind":"camera","entity":"camera.porch","label":"Porch"}""", """{"type":"result","text":"There."}"""), shown = shown)
+    r.onMessage("""{"type":"session.delegation.created","delegation":{"id":"d1","target":"client"}}""")
+    advanceUntilIdle()
+    assertEquals(listOf<Shown>(Shown.Camera("camera.porch", "Porch")), shown)
   }
 
   @Test

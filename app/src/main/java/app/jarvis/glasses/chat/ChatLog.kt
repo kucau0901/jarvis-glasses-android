@@ -2,6 +2,7 @@ package app.jarvis.glasses.chat
 
 import app.jarvis.glasses.conversation.Memory
 import app.jarvis.glasses.hub.AlertFrom
+import app.jarvis.glasses.hub.MadePage
 import app.jarvis.glasses.hub.Said
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.Turn
@@ -36,6 +37,13 @@ class ChatLog(
   /** Rows only shown, never kept or asked with, by id: "limit" for a notice, "bad" for a failure. */
   val kinds: StateFlow<Map<String, String>> = _kinds
 
+  private val _shown = MutableStateFlow<Map<String, List<Shown>>>(emptyMap())
+  /**
+   * What an answer put on the screen, by its id: drawn under it while the app is open, never kept,
+   * as the web's stage keeps none of it (a page goes with its answer instead, [Said.page]).
+   */
+  val shown: StateFlow<Map<String, List<Shown>>> = _shown
+
   // One save at a time, in the order said: Jarvis keeps them in the order they arrive.
   private val saving = Mutex()
 
@@ -63,7 +71,46 @@ class ChatLog(
   override fun keep(turns: List<Turn>, alert: Alert?) {
     val at = now()
     val opening = alert?.let { listOf(said(it, at)) }.orEmpty()
-    keep(opening + turns.filter { it.text.isNotBlank() }.map { Said(Said.newId(), at, it.role, it.text.trim()) })
+    val said = opening + turns.filter { it.text.isNotBlank() }.map { Said(Said.newId(), at, it.role, it.text.trim()) }
+    keep(said)
+    // What Live showed goes under the answer Jarvis says about it.
+    said.lastOrNull { it.role == "assistant" }?.let { a -> takeWaiting().takeIf { it.isNotEmpty() }?.let { showed(a.id, it) } }
+  }
+
+  // What Live has shown that no answer has taken yet: on WebRTC's thread and the relay's.
+  private val waiting = mutableListOf<Shown>()
+
+  private fun takeWaiting(): List<Shown> = synchronized(waiting) { waiting.toList().also { waiting.clear() } }
+
+  /**
+   * What Jarvis put on the screen in a Live session: a page at once, kept on its own as the web
+   * keeps one no answer took; "close that" at once; anything else under the answer Jarvis says
+   * next, which is finished only once it has been said.
+   */
+  fun liveShowed(s: Shown) {
+    when (s) {
+      is Shown.Page -> keep(listOf(Said(Said.newId(), now(), "assistant", s.title, page = MadePage(s.id, s.title))))
+      Shown.Close -> {
+        takeWaiting()
+        showed("", listOf(Shown.Close))
+      }
+      else -> synchronized(waiting) { waiting += s }
+    }
+  }
+
+  /** The Live session ended: what it showed that no answer took goes under the last row, not lost. */
+  fun liveEnded() {
+    val left = takeWaiting()
+    val last = _said.value.lastOrNull() ?: return
+    if (left.isNotEmpty()) showed(last.id, left)
+  }
+
+  /** [what] the answer [id] showed, under it; "close that" ([Shown.Close]) takes all that is shown off. */
+  fun showed(id: String, what: List<Shown>) {
+    val closed = what.lastIndexOf(Shown.Close)
+    if (closed >= 0) _shown.value = emptyMap()
+    val drawn = what.drop(closed + 1).filter { it !is Shown.Page }
+    if (drawn.isNotEmpty()) _shown.update { it + (id to it[id].orEmpty() + drawn) }
   }
 
   override fun recent(): List<Turn> = transcript(_said.value, _kinds.value.keys, now())
@@ -82,6 +129,7 @@ class ChatLog(
     if (person()) wipe()
     _said.value = emptyList()
     _kinds.value = emptyMap()
+    _shown.value = emptyMap()
   }
 
   // Live's turns arrive on WebRTC's thread, Chat's on the main one.
@@ -104,11 +152,11 @@ class ChatLog(
     /**
      * What a question goes with: the last twenty turns of the past three hours, as the web app's
      * (src/app/history.ts there), without rows only [shown]. What a routine, job or alert said is
-     * named, and a bot's words are quoted as its own ([Said.read]).
+     * named, and a bot's words are quoted as its own ([Said.read]); a page set apart is not words.
      */
     fun transcript(said: List<Said>, shown: Set<String>, now: Long): List<Turn> =
         said
-            .filter { it.id !in shown && (now - it.at < RECENT_MS || it.at == 0L) }
+            .filter { it.id !in shown && !it.apart && (now - it.at < RECENT_MS || it.at == 0L) }
             .takeLast(RECENT_TURNS)
             .map { s -> Turn(s.role, s.read) }
   }
