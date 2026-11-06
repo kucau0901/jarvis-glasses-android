@@ -141,7 +141,7 @@ internal fun faceOf(row: PanelRow, reading: Reading? = null): Face {
       }
   val low = row.level != null && row.level < LOW_BATTERY
   val m = row.more
-  val controls = m != null && (m.members != null || m.climate != null || m.actions != null || m.level != null || m.history || m.alert != null || m.map != null)
+  val controls = m != null && (m.members != null || m.climate != null || m.actions != null || m.level != null || m.color != null || m.history || m.alert != null || m.map != null)
   val more =
       controls || buttons.size > 1 || row.tiles.isNotEmpty() || (row.note != null && row.value.isNotEmpty()) || row.read ||
           row.actions.any { it.input != null } || row.alerts.isNotEmpty()

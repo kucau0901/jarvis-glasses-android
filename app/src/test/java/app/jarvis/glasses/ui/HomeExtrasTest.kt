@@ -1,7 +1,12 @@
 package app.jarvis.glasses.ui
 
 import app.jarvis.glasses.hub.Can
+import app.jarvis.glasses.hub.LightColor
+import app.jarvis.glasses.hub.PanelMore
+import app.jarvis.glasses.hub.PanelsReply
+import app.jarvis.glasses.hub.Hub
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -85,5 +90,49 @@ class HomeExtrasTest {
         emptyHomeText(null),
     )
     assertEquals("a", inWords(listOf("a")))
+  }
+
+  @Test fun aColourIsSentAsWholeNumbersWithHue360AsNought() {
+    assertEquals("color:120,100", colorAction(120, 100))
+    assertEquals("color:0,100", colorAction(360, 100))
+    assertEquals("color:0,0", colorAction(0, -5))
+    assertEquals("kelvin:2700", kelvinAction(2700))
+    assertEquals(listOf("color:0,100", "color:30,100", "color:55,100", "color:120,100", "color:180,100", "color:220,100", "color:275,100", "color:320,100", "color:0,0"), SWATCHES.map { it.action })
+    assertEquals("White", SWATCHES.last().name)
+  }
+
+  @Test fun theNearestSwatchIsMarkedOnlyWhileTheLightIsOn() {
+    fun near(hue: Double, sat: Double, on: Boolean = true) = nearestSwatch(LightColor(wheel = true, hue = hue, sat = sat, on = on))?.name
+    assertEquals("Red", near(0.0, 100.0))
+    assertEquals("Red", near(355.0, 90.0)) // round the wheel, not the long way
+    assertEquals("Orange", near(25.0, 100.0))
+    assertEquals("Blue", near(230.0, 80.0))
+    assertEquals("Pink", near(330.0, 100.0))
+    assertEquals("White", near(0.0, 0.0))
+    assertEquals("White", near(120.0, 30.0)) // a pale green is nearer white
+    assertNull(near(120.0, 100.0, on = false))
+  }
+
+  @Test fun aShadeOfWhiteIsToTheNearest50KWithinTheLight() {
+    assertEquals(4000, kelvinAt(4013.0, 2000.0, 6500.0))
+    assertEquals(4050, kelvinAt(4030.0, 2000.0, 6500.0))
+    assertEquals(2202, kelvinAt(2190.0, 2202.0, 6535.0))
+    assertEquals(6535, kelvinAt(6540.0, 2202.0, 6535.0))
+    assertEquals(2700, kelvinAt(5000.0, 2700.0, 2700.0))
+  }
+
+  @Test fun aLightsColourIsReadAndAnythingElseHasNone() {
+    val json =
+        """{"panels":[{"id":"p","title":"Bedroom","rows":[{"key":"room","kind":"room","label":"Lights","more":{"members":[
+          {"key":"light.living_strip","kind":"light","label":"Strip","more":{"level":{"name":"Brightness","value":60,"min":1,"max":100,"step":1,"unit":"%"},
+            "color":{"wheel":true,"hue":220,"sat":100,"white":true,"kelvin":4000.0,"warm":2000,"cool":6500,"on":true}}},
+          {"key":"switch.fan_plug","kind":"switch","label":"Fan","more":{}},
+          {"key":"light.hall","kind":"light","label":"Hall"}]}}]}]}"""
+    val members = Hub.JSON_IN.decodeFromString(PanelsReply.serializer(), json).panels[0].rows[0].more!!.members!!
+    val strip = members[0].more!!
+    assertEquals(LightColor(wheel = true, hue = 220.0, sat = 100.0, white = true, kelvin = 4000.0, warm = 2000.0, cool = 6500.0, on = true), strip.color)
+    assertEquals(60.0, strip.level!!.value, 0.0)
+    assertEquals(PanelMore(), members[1].more)
+    assertNull(members[2].more)
   }
 }

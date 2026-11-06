@@ -6,6 +6,8 @@ import android.net.Uri
 import android.util.Base64
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,7 +18,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -48,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import app.jarvis.glasses.hub.AlertSpec
 import app.jarvis.glasses.hub.History
 import app.jarvis.glasses.hub.Hub
+import app.jarvis.glasses.hub.Level
+import app.jarvis.glasses.hub.LightColor
 import app.jarvis.glasses.hub.PanelAction
 import java.time.Instant
 import java.time.ZoneId
@@ -57,8 +64,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // What an opened tile shows beyond words and buttons, as on Jarvis's web app: a number's last day as
-// a line, where the car is as a map, "Alert me", and buttons that take a slider's number or typed
-// words. Whatever acts on the house, the car or the account is a SafePill: a quick tap only.
+// a line, where the car is as a map, "Alert me", buttons that take a slider's number or typed words,
+// and a light's brightness and colour. Whatever acts on the house, the car or the account is a
+// SafePill: a quick tap only.
 
 /** A chart's last day is fetched again after this long, as on the web. */
 private const val HISTORY_MS = 5 * 60_000L
@@ -273,6 +281,66 @@ internal fun InputAction(action: PanelAction, enabled: Boolean, send: (String) -
     }
   }
 }
+
+/**
+ * A thing's level as a slider, on its own steps from its min, with their decimals (a number from
+ * -2.5 to 2.5 by 0.5 can be 1.5), and sent as "level:<n>" when let go, as on the web: a thing's, or
+ * one of its room's lights'.
+ */
+@Composable
+internal fun LevelSlider(lv: Level, send: (String) -> Unit) {
+  val c = Even.colors
+  val step = lv.step.takeIf { it > 0 } ?: 1.0
+  var v by remember(lv.value) { mutableFloatStateOf(lv.value.toFloat()) }
+  val chosen = stepWords(onStep(v.toDouble(), lv.min, lv.max, step), step)
+  Text("${lv.name}: $chosen${lv.unit}", style = MaterialTheme.typography.bodySmall, color = c.dim)
+  Slider(
+      value = v,
+      onValueChange = { v = it },
+      valueRange = lv.min.toFloat()..sliderTop(lv.min, lv.max, step).toFloat(),
+      steps = sliderSteps(lv.min, lv.max, step),
+      onValueChangeFinished = { send("level:$chosen") },
+  )
+}
+
+/**
+ * A light's colour, each part only if the light takes it: the swatches every screen of Jarvis's has,
+ * a tap setting one and the nearest to its colour filled while it is on; and its shade of white on a
+ * slider from warm to cool, sent when let go as its brightness is.
+ */
+@Composable
+internal fun LightColorControls(color: LightColor, busy: (String) -> Boolean, send: (String) -> Unit) {
+  val c = Even.colors
+  if (color.wheel) {
+    val near = nearestSwatch(color)
+    Text("Colour", style = MaterialTheme.typography.labelSmall, color = c.dim)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+      for (s in SWATCHES) {
+        key(s.name) {
+          Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Spacer(Modifier.size(14.dp).clip(CircleShape).background(swatchColor(s)).border(1.dp, c.line, CircleShape))
+            SafePill(s.name, enabled = !busy(s.action), selected = s == near) { send(s.action) }
+          }
+        }
+      }
+    }
+  }
+  if (color.white && color.cool > color.warm) {
+    val warm = color.warm.toFloat()
+    val cool = color.cool.toFloat()
+    var v by remember(color.kelvin, color.warm, color.cool) { mutableFloatStateOf(color.kelvin.toFloat().coerceIn(warm, cool)) }
+    val k = kelvinAt(v.toDouble(), color.warm, color.cool)
+    Text("White: $k K", style = MaterialTheme.typography.bodySmall, color = c.dim)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      Text("Warm", style = MaterialTheme.typography.labelSmall, color = c.dim)
+      Slider(value = v, onValueChange = { v = it }, valueRange = warm..cool, onValueChangeFinished = { send(kelvinAction(k)) }, modifier = Modifier.weight(1f))
+      Text("Cool", style = MaterialTheme.typography.labelSmall, color = c.dim)
+    }
+  }
+}
+
+/** A swatch as its dot shows it: its hue at its saturation, full bright. */
+private fun swatchColor(s: Swatch): Color = if (s.sat == 0) Color.White else Color.hsv(s.hue.toFloat(), s.sat / 100f, 1f)
 
 /** Choices as pills, the chosen one filled, as the web's aircond modes and fan speeds. */
 @Composable

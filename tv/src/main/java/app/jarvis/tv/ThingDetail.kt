@@ -1,6 +1,7 @@
 package app.jarvis.tv
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -27,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,6 +49,7 @@ import app.jarvis.tv.jarvis.ButtonInput
 import app.jarvis.tv.jarvis.Climate
 import app.jarvis.tv.jarvis.Figure
 import app.jarvis.tv.jarvis.Level
+import app.jarvis.tv.jarvis.LightColor
 import app.jarvis.tv.jarvis.Panel
 import app.jarvis.tv.jarvis.PanelAction
 import app.jarvis.tv.jarvis.PanelRow
@@ -54,9 +57,13 @@ import app.jarvis.tv.jarvis.Reading
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+import kotlin.math.sin
 
 /**
  * All of a thing, in a sheet that rises over Home as the phone's does: its name, state and reading in full, then every button and
@@ -118,17 +125,24 @@ fun ThingDetail(
     }
     row.more?.members?.let { members ->
       for (m in members) {
-        val acts = m.actions.filter { it.input == null }.take(TILES_PER_ROW - 2)
-        TileRow(2 + acts.size) {
-          Column(Modifier.weight(2f)) {
-            Text(m.label, style = TextStyle(fontSize = 17.sp, color = c.ink), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (m.value.isNotEmpty()) Small(m.value)
+        key(m.key) {
+          val acts = m.actions.filter { it.input == null }.take(TILES_PER_ROW - 2)
+          TileRow(2 + acts.size) {
+            Column(Modifier.weight(2f)) {
+              Text(m.label, style = TextStyle(fontSize = 17.sp, color = c.ink), maxLines = 1, overflow = TextOverflow.Ellipsis)
+              if (m.value.isNotEmpty()) Small(m.value)
+            }
+            for ((j, b) in acts.withIndex()) Bar(b.label, if (j == 0) first() else Modifier, busy) { act(b.action, m.key, null) }
           }
-          for ((j, b) in acts.withIndex()) Bar(b.label, if (j == 0) first() else Modifier, busy) { act(b.action, m.key, null) }
+          // A light of the room's that dims or takes a colour has those under it; a switch, or a
+          // light that is only on or off, has its buttons alone.
+          m.more?.level?.let { LevelControl(it, first(), busy) { n -> act("level:$n", m.key, null) } }
+          m.more?.color?.let { ColorControl(it, { first() }, busy) { a -> act(a, m.key, null) } }
         }
       }
     }
     row.more?.level?.let { LevelControl(it, first(), busy) { n -> act("level:$n", null, null) } }
+    row.more?.color?.let { ColorControl(it, { first() }, busy) { a -> act(a, null, null) } }
     row.more?.climate?.let { ClimateControl(it, { first() }, busy) { a -> act(a, null, null) } }
     row.more?.actions?.let { acts ->
       val needCode = row.more?.code?.forActions.orEmpty().toSet()
@@ -295,6 +309,37 @@ private fun ClimateControl(climate: Climate, first: () -> Modifier, busy: Boolea
   }
 }
 
+/**
+ * A light's colour, each part only if the light takes it: the swatches every screen of Jarvis's has,
+ * each setting it as it is pressed, the nearest to its colour marked with a dot while it is on; then
+ * its shade of white, walked from Warm to Cool along five even steps and sent with Set.
+ */
+@Composable
+private fun ColorControl(color: LightColor, first: () -> Modifier, busy: Boolean, send: (String) -> Unit) {
+  if (color.wheel) {
+    val near = nearestSwatch(color)
+    Caption("Colour")
+    for ((i, chunk) in SWATCHES.chunked(TILES_PER_ROW).withIndex()) {
+      TileRow(chunk.size) {
+        for ((j, s) in chunk.withIndex()) Bar(s.name, if (i == 0 && j == 0) first() else Modifier, busy, chosen = s == near, swatch = swatchColor(s)) { send(s.action) }
+      }
+    }
+  }
+  if (color.white) {
+    var k by remember(color.kelvin, color.warm, color.cool) { mutableIntStateOf(kelvinStep(color.kelvin, 0, color.warm, color.cool)) }
+    Caption("White")
+    TileRow(4) {
+      Bar("Warm", first()) { k = kelvinStep(k.toDouble(), -1, color.warm, color.cool) }
+      Shown("$k K")
+      Bar("Cool") { k = kelvinStep(k.toDouble(), 1, color.warm, color.cool) }
+      Bar("Set", busy = busy) { send(kelvinAction(k)) }
+    }
+  }
+}
+
+/** A swatch as its dot shows it: its hue at its saturation, full bright. */
+private fun swatchColor(s: Swatch): Color = if (s.sat == 0) Color.White else Color.hsv(s.hue.toFloat(), s.sat / 100f, 1f)
+
 /** A number between − and +, not a button. */
 @Composable
 private fun RowScope.Shown(text: String) {
@@ -303,7 +348,10 @@ private fun RowScope.Shown(text: String) {
   }
 }
 
-/** One of the page's buttons: an Even tile with its name, grey while it can't be pressed; [chosen] gets a green dot. */
+/**
+ * One of the page's buttons: an Even tile with its name, grey while it can't be pressed; [chosen]
+ * gets a green dot, and a colour's [swatch] a dot of it before its name.
+ */
 @Composable
 private fun RowScope.Bar(
     label: String,
@@ -313,11 +361,16 @@ private fun RowScope.Bar(
     weight: Float = 1f,
     chosen: Boolean = false,
     color: Color? = null,
+    swatch: Color? = null,
     onClick: () -> Unit,
 ) {
   val c = Even.colors
   FocusBar({ if (enabled) onClick() }, modifier.weight(weight)) {
     Row(verticalAlignment = Alignment.CenterVertically) {
+      if (swatch != null) {
+        Box(Modifier.size(14.dp).clip(CircleShape).background(swatch).border(1.dp, c.line, CircleShape))
+        Spacer(Modifier.width(8.dp))
+      }
       Text(label, style = TextStyle(fontSize = 17.sp, color = if (!enabled) c.dim else color ?: c.ink), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
       if (chosen) {
         Spacer(Modifier.width(8.dp))
@@ -365,6 +418,64 @@ private fun tempWords(t: Double) = numberWords(t, 0.1)
 
 /** "heat_cool" as "Heat cool". */
 internal fun prettyWord(word: String): String = word.replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+/**
+ * A colour a light is set to with one press, the same on every screen of Jarvis's (the phone's and
+ * the wall panel's too): its name, and its hue (0-359) and saturation (0-100). White is no
+ * saturation at all.
+ */
+internal data class Swatch(val name: String, val hue: Int, val sat: Int) {
+  val action: String
+    get() = colorAction(hue, sat)
+}
+
+internal val SWATCHES =
+    listOf(
+        Swatch("Red", 0, 100),
+        Swatch("Orange", 30, 100),
+        Swatch("Yellow", 55, 100),
+        Swatch("Green", 120, 100),
+        Swatch("Cyan", 180, 100),
+        Swatch("Blue", 220, 100),
+        Swatch("Purple", 275, 100),
+        Swatch("Pink", 320, 100),
+        Swatch("White", 0, 0),
+    )
+
+/** What sets a light's colour: "color:<hue>,<sat>", whole numbers, a hue of 360 being 0. */
+internal fun colorAction(hue: Int, sat: Int): String = "color:${hue.mod(360)},${sat.coerceIn(0, 100)}"
+
+/** What sets a light's shade of white: "kelvin:<k>". */
+internal fun kelvinAction(kelvin: Int): String = "kelvin:$kelvin"
+
+/**
+ * The swatch nearest a light's colour, to mark it; none while the light is off. Nearest on the
+ * colour wheel, where white is the middle: a pale red is nearer White than Red.
+ */
+internal fun nearestSwatch(color: LightColor): Swatch? {
+  if (!color.on) return null
+  fun at(hue: Double, sat: Double) = Math.toRadians(hue).let { sat.coerceIn(0.0, 100.0) * cos(it) to sat.coerceIn(0.0, 100.0) * sin(it) }
+  val (x, y) = at(color.hue, color.sat)
+  return SWATCHES.minBy { s -> at(s.hue.toDouble(), s.sat.toDouble()).let { (sx, sy) -> (sx - x) * (sx - x) + (sy - y) * (sy - y) } }
+}
+
+/** How many shades of white the remote walks along, warmest to coolest. */
+internal const val KELVIN_STEPS = 5
+
+/** A light's shades of white for the remote: [KELVIN_STEPS] even steps from its [warm] to its [cool], whole numbers. */
+internal fun kelvinSteps(warm: Double, cool: Double): List<Int> {
+  val lo = ceil(warm).toInt()
+  val hi = floor(cool).toInt()
+  if (hi <= lo) return listOf(lo)
+  return List(KELVIN_STEPS) { i -> (lo + (hi - lo) * i / (KELVIN_STEPS - 1).toDouble()).roundToInt() }.distinct()
+}
+
+/** [kelvin] moved [by] of those steps, toward cool when more than 0; 0 puts it on the nearest. */
+internal fun kelvinStep(kelvin: Double, by: Int, warm: Double, cool: Double): Int {
+  val steps = kelvinSteps(warm, cool)
+  val at = steps.indices.minBy { abs(steps[it] - kelvin) }
+  return steps[(at + by).coerceIn(steps.indices)]
+}
 
 /** The phone's bottom sheet: round at the top, square where it meets the screen's edge. */
 private val SHEET = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)

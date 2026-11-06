@@ -2,6 +2,7 @@ package app.jarvis.tv
 
 import app.jarvis.tv.jarvis.ButtonInput
 import app.jarvis.tv.jarvis.Figure
+import app.jarvis.tv.jarvis.LightColor
 import app.jarvis.tv.jarvis.Panel
 import app.jarvis.tv.jarvis.PanelAction
 import app.jarvis.tv.jarvis.PanelRow
@@ -145,5 +146,40 @@ class PanelsTest {
   fun modesReadAsWords() {
     assertEquals("Heat cool", prettyWord("heat_cool"))
     assertEquals("Auto", prettyWord("auto"))
+  }
+
+  @Test
+  fun aColourIsSentAsWholeNumbersWithHue360AsNought() {
+    assertEquals("color:120,100", colorAction(120, 100))
+    assertEquals("color:0,100", colorAction(360, 100))
+    assertEquals("color:0,0", colorAction(0, -5))
+    assertEquals("kelvin:2700", kelvinAction(2700))
+    assertEquals(listOf("color:0,100", "color:30,100", "color:55,100", "color:120,100", "color:180,100", "color:220,100", "color:275,100", "color:320,100", "color:0,0"), SWATCHES.map { it.action })
+    assertEquals("White", SWATCHES.last().name)
+  }
+
+  @Test
+  fun theNearestSwatchIsMarkedOnlyWhileTheLightIsOn() {
+    fun near(hue: Double, sat: Double, on: Boolean = true) = nearestSwatch(LightColor(wheel = true, hue = hue, sat = sat, on = on))?.name
+    assertEquals("Red", near(0.0, 100.0))
+    assertEquals("Red", near(355.0, 90.0)) // round the wheel, not the long way
+    assertEquals("Orange", near(25.0, 100.0))
+    assertEquals("Blue", near(230.0, 80.0))
+    assertEquals("Pink", near(330.0, 100.0))
+    assertEquals("White", near(0.0, 0.0))
+    assertEquals("White", near(120.0, 30.0)) // a pale green is nearer white
+    assertNull(near(120.0, 100.0, on = false))
+  }
+
+  @Test
+  fun whiteIsFiveEvenStepsFromWarmToCool() {
+    assertEquals(listOf(2000, 3125, 4250, 5375, 6500), kelvinSteps(2000.0, 6500.0))
+    assertEquals(listOf(2700), kelvinSteps(2700.0, 2700.0))
+    assertEquals(4250, kelvinStep(4100.0, 0, 2000.0, 6500.0))
+    assertEquals(5375, kelvinStep(4250.0, 1, 2000.0, 6500.0))
+    assertEquals(3125, kelvinStep(4250.0, -1, 2000.0, 6500.0))
+    assertEquals(6500, kelvinStep(6500.0, 1, 2000.0, 6500.0))
+    assertEquals(2000, kelvinStep(2000.0, -1, 2000.0, 6500.0))
+    assertEquals(2000, kelvinStep(1500.0, 0, 2000.0, 6500.0))
   }
 }
