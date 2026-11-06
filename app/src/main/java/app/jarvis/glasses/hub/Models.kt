@@ -84,6 +84,8 @@ data class PanelMore(
     val alert: AlertSpec? = null,
     /** Where it is (the car). */
     val map: LatLng? = null,
+    /** A light's colour, when it can take one or a shade of white; never for a switch or an on/off light. */
+    val color: LightColor? = null,
 )
 
 @Serializable data class AlertSpec(val kind: String, val on: String = "", val off: String = "", val unit: String = "", val value: Double? = null)
@@ -104,6 +106,24 @@ data class Climate(
 )
 
 @Serializable data class AlarmCode(val digits: Boolean = true, @kotlinx.serialization.SerialName("for") val forActions: List<String> = emptyList())
+
+/**
+ * A light's colour as Jarvis has it (src/shared/panels.ts): [wheel] if it takes a colour, at [hue]
+ * (0-359) and [sat] (0-100); [white] if it takes a shade of white, at [kelvin], from [warm] to [cool].
+ * Set with "color:<hue>,<sat>" and "kelvin:<k>"; [on], whether it is on now. Whole numbers, read as
+ * any number so one sent as 120.0 never stops the panels being read.
+ */
+@Serializable
+data class LightColor(
+    val wheel: Boolean = false,
+    val hue: Double = 0.0,
+    val sat: Double = 0.0,
+    val white: Boolean = false,
+    val kelvin: Double = 4000.0,
+    val warm: Double = 2000.0,
+    val cool: Double = 6500.0,
+    val on: Boolean = false,
+)
 
 @Serializable data class Level(val name: String, val value: Double, val min: Double, val max: Double, val step: Double, val unit: String = "")
 

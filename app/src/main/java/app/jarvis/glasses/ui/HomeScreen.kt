@@ -35,7 +35,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -735,32 +734,31 @@ private fun Buttons(actions: List<PanelAction>, busy: (PanelAction) -> Boolean =
 /** Which press is on its way: a button of a thing (and of one of its room's lights). */
 private fun pressKey(panel: Panel, row: PanelRow, action: String, member: String?) = "${panel.id}\n${row.key}\n$action\n${member.orEmpty()}"
 
-/** A thing's controls, in its sheet: a room's lights, a slider, the thermostat, the alarm. */
+/** A thing's controls, in its sheet: a room's lights, a slider, a light's colour, the thermostat, the alarm. */
 @Composable
 private fun More(panel: Panel, row: PanelRow, press: Press, busy: (action: String, member: String?) -> Boolean) {
   val more = row.more ?: return
   val c = Even.colors
   more.members?.forEach { m ->
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Text(m.label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-      Buttons(m.actions, { busy(it.action, m.key) }) { press(panel, row, it.action, m.key, null, null) }
+    key(m.key) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(m.label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        Buttons(m.actions, { busy(it.action, m.key) }) { press(panel, row, it.action, m.key, null, null) }
+      }
+      // A light of the room's that dims or takes a colour has those under it; a switch, or a light
+      // that is only on or off, has its buttons alone.
+      val lv = m.more?.level
+      val color = m.more?.color
+      if (lv != null || color != null) {
+        Column(Modifier.padding(start = 12.dp)) {
+          lv?.let { LevelSlider(it) { a -> press(panel, row, a, m.key, null, null) } }
+          color?.let { LightColorControls(it, { a -> busy(a, m.key) }) { a -> press(panel, row, a, m.key, null, null) } }
+        }
+      }
     }
   }
-  more.level?.let { lv ->
-    // On the thing's own steps, from its min, with their decimals: a number from -2.5 to 2.5 by 0.5 can be 1.5.
-    val step = lv.step.takeIf { it > 0 } ?: 1.0
-    var v by remember(lv.value) { mutableFloatStateOf(lv.value.toFloat()) }
-    val chosen = stepWords(onStep(v.toDouble(), lv.min, lv.max, step), step)
-    Text("${lv.name}: $chosen${lv.unit}", style = MaterialTheme.typography.bodySmall, color = c.dim)
-    // Sent when let go, as on the web.
-    Slider(
-        value = v,
-        onValueChange = { v = it },
-        valueRange = lv.min.toFloat()..sliderTop(lv.min, lv.max, step).toFloat(),
-        steps = sliderSteps(lv.min, lv.max, step),
-        onValueChangeFinished = { press(panel, row, "level:$chosen", null, null, null) },
-    )
-  }
+  more.level?.let { lv -> LevelSlider(lv) { press(panel, row, it, null, null, null) } }
+  more.color?.let { cl -> LightColorControls(cl, { busy(it, null) }) { press(panel, row, it, null, null, null) } }
   more.climate?.let { cl ->
     // As the web: a set point only when the unit has one (not in fan or dry mode, nor off), and only
     // a press that changes it.

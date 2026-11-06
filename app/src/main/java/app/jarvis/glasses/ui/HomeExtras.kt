@@ -1,14 +1,18 @@
 package app.jarvis.glasses.ui
 
 import app.jarvis.glasses.hub.Can
+import app.jarvis.glasses.hub.LightColor
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+import kotlin.math.sin
 
 // What an opened tile draws beyond words, as on Jarvis's web app (src/app/ui/HomeChart.ts,
-// HomeMore.ts, Home.ts): a line chart, a slider's start, a mode's name, the empty Home's words.
-// Plain Kotlin, to be tested.
+// HomeMore.ts, Home.ts): a line chart, a slider's start, a mode's name, a light's colours, the
+// empty Home's words. Plain Kotlin, to be tested.
 
 /** A number as a chart labels it: whole when it is large, to a hundredth when it is small. */
 internal fun chartNumber(v: Double): String {
@@ -79,4 +83,51 @@ internal fun emptyHomeText(can: Can?): String {
   val example = if (home) "“put the gate and the porch light on a panel”" else if (car) "“put my car on a panel”" else "“make me a to-do panel”"
   val shows = listOfNotNull("things in the house".takeIf { home }, "your car".takeIf { car }, "what you have used", "notes")
   return "Ask Jarvis for a panel and it appears here: $example. A panel can show ${inWords(shows)}."
+}
+
+/**
+ * A colour a light is set to with one tap, the same on every screen of Jarvis's (the wall panel's
+ * too): its name, and its hue (0-359) and saturation (0-100). White is no saturation at all.
+ */
+internal data class Swatch(val name: String, val hue: Int, val sat: Int) {
+  val action: String
+    get() = colorAction(hue, sat)
+}
+
+internal val SWATCHES =
+    listOf(
+        Swatch("Red", 0, 100),
+        Swatch("Orange", 30, 100),
+        Swatch("Yellow", 55, 100),
+        Swatch("Green", 120, 100),
+        Swatch("Cyan", 180, 100),
+        Swatch("Blue", 220, 100),
+        Swatch("Purple", 275, 100),
+        Swatch("Pink", 320, 100),
+        Swatch("White", 0, 0),
+    )
+
+/** What sets a light's colour: "color:<hue>,<sat>", whole numbers, a hue of 360 being 0. */
+internal fun colorAction(hue: Int, sat: Int): String = "color:${hue.mod(360)},${sat.coerceIn(0, 100)}"
+
+/** What sets a light's shade of white: "kelvin:<k>". */
+internal fun kelvinAction(kelvin: Int): String = "kelvin:$kelvin"
+
+/**
+ * The swatch nearest a light's colour, to mark it; none while the light is off. Nearest on the
+ * colour wheel, where white is the middle: a pale red is nearer White than Red.
+ */
+internal fun nearestSwatch(color: LightColor): Swatch? {
+  if (!color.on) return null
+  fun at(hue: Double, sat: Double) = Math.toRadians(hue).let { sat.coerceIn(0.0, 100.0) * cos(it) to sat.coerceIn(0.0, 100.0) * sin(it) }
+  val (x, y) = at(color.hue, color.sat)
+  return SWATCHES.minBy { s -> at(s.hue.toDouble(), s.sat.toDouble()).let { (sx, sy) -> (sx - x) * (sx - x) + (sy - y) * (sy - y) } }
+}
+
+/** A shade of white from a slider at [v]: to the nearest 50 K, as a whole number from the light's [warm] to its [cool]. */
+internal fun kelvinAt(v: Double, warm: Double, cool: Double): Int {
+  val lo = ceil(warm).toInt()
+  val hi = floor(cool).toInt()
+  if (hi <= lo) return lo
+  return ((v / 50).roundToInt() * 50).coerceIn(lo, hi)
 }
