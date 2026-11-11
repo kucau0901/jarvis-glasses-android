@@ -220,6 +220,22 @@ class JarvisClient(
     }
   }
 
+  /**
+   * Something happened that the person's routines may wait for (`POST /api/v1/trigger`, needs
+   * `routines`): a place of theirs crossed, `arrived:<slug>` or `left:<slug>` with its name as
+   * [text]. Whether Jarvis took it: false when it was out of reach or refused, for the caller to
+   * try again ([app.jarvis.glasses.location.Outbox]).
+   */
+  suspend fun trigger(event: String, text: String?): Boolean =
+      withContext(Dispatchers.IO) {
+        val body = buildJsonObject { put("event", event); text?.let { put("text", it) } }
+        try {
+          exchange(request("/api/v1/trigger").post(body.toString().toRequestBody(JSON)).build()) { it.isSuccessful }
+        } catch (_: IOException) {
+          false
+        }
+      }
+
   private suspend fun stream(path: String, body: JsonObject, onEvent: suspend (JsonObject) -> Unit) {
     val req = request(path).post(body.toString().toRequestBody(JSON)).header("Accept", "text/event-stream").build()
     exchange(req) { res ->

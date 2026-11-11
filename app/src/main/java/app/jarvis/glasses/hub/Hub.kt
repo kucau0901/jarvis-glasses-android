@@ -237,6 +237,31 @@ class Hub(private val client: JarvisClient) {
     )
   }
 
+  // Places (docs/api.md, "Places: arriving and leaving"): the caller's own, with `routines`
+
+  suspend fun places(): List<Place> = get<PlacesReply>("/api/v1/places").places
+
+  /**
+   * [name] saved at this position; the same name again moves that place and keeps its slug. Without
+   * [radius] (metres) Jarvis uses 150, and keeps any between 100 and 1000. What Jarvis refuses (a
+   * twenty-first place, a name with no letters) it says in words, which the failure carries.
+   */
+  suspend fun savePlace(name: String, lat: Double, lng: Double, radius: Int? = null): Place =
+      post<OnePlace>(
+              "/api/v1/places",
+              buildJsonObject {
+                put("name", name)
+                put("lat", lat)
+                put("lng", lng)
+                radius?.let { put("radius", it) }
+              },
+          )
+          .place
+
+  suspend fun removePlace(slug: String) {
+    send<JsonObject>("DELETE", "/api/v1/places?slug=${enc(slug)}", buildJsonObject {})
+  }
+
   // Plumbing
 
   private suspend inline fun <reified T> get(path: String): T =

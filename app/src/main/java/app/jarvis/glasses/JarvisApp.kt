@@ -23,6 +23,9 @@ import app.jarvis.glasses.hub.Admin
 import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.jarvis.Pairing
 import app.jarvis.glasses.live.LiveVoice
+import app.jarvis.glasses.location.Fences
+import app.jarvis.glasses.location.Outbox
+import app.jarvis.glasses.location.Places
 import app.jarvis.glasses.watch.HubWrist
 import app.jarvis.glasses.watch.WatchAskService
 import app.jarvis.glasses.watch.WatchRelay
@@ -58,6 +61,14 @@ class JarvisApp : Application() {
   lateinit var glasses: StateFlow<List<GlassesState>>
   /** The Jarvis watch app's questions, asked through this phone ([WatchService]). */
   lateinit var watch: WatchRelay
+  /** The person's saved places, their geofences, and crossings on their way to Jarvis (Settings → Location). */
+  lateinit var places: Places
+  lateinit var fences: Fences
+  lateinit var outbox: Outbox
+
+  /** Whether this phone tells Jarvis of arriving and leaving: switched on here, by a signed-in person. */
+  val tellsPlaces: Boolean
+    get() = prefs.places && prefs.token.startsWith("jss1_")
 
   override fun onCreate() {
     super.onCreate()
@@ -74,6 +85,9 @@ class JarvisApp : Application() {
     admin = Admin(client)
     notifier = AlertNotifier(this, client, hub, chat, scope)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
+    places = Places(hub::places, { prefs.placesKept }, { prefs.placesKept = it }, changed = { fences.apply(it) })
+    fences = Fences(this, on = { tellsPlaces }, places = { places.list.value })
+    outbox = Outbox({ prefs.placesWaiting }, { prefs.placesWaiting = it }, System::currentTimeMillis, on = { tellsPlaces }) { client.trigger(it.event, it.text) }
     // Asked as the watch's own screen, with Chat's conversation (read again first, as Talk has it)
     // for context; spoken answers are Jarvis's mp3, written ones fit the watch's round screen.
     watch =
@@ -116,6 +130,21 @@ class JarvisApp : Application() {
       }
     }
     scope.launch { runCatching { chat.refresh() } }
+    // A crossing Jarvis didn't get is sent at the next chance: now, the app starting, and whenever
+    // the alerts connection is back, which is Jarvis in reach again.
+    scope.launch { outbox.send() }
+    scope.launch { alerts.state.collect { if (it == AlertSocket.State.CONNECTED) outbox.send() } }
+  }
+
+  /**
+   * Signed in, out, or in as someone else: the places kept here were the last person's, so they,
+   * their fences and anything still to send go; the new person's are read when the switch is on.
+   */
+  fun personChanged() {
+    places.forget()
+    outbox.clear()
+    fences.refresh()
+    if (tellsPlaces) scope.launch { runCatching { places.sync() } }
   }
 
   /**
@@ -267,6 +296,26 @@ class Prefs(context: Context) {
   fun gatewayHeaders(): Map<String, String> =
       if (accessId.isEmpty() || accessSecret.isEmpty()) emptyMap()
       else mapOf("CF-Access-Client-Id" to accessId, "CF-Access-Client-Secret" to accessSecret)
+
+  /** Settings → Location: this phone tells Jarvis when the person arrives at or leaves a place they saved. Off until turned on. */
+  var places: Boolean
+    get() = p.getBoolean("places", false)
+    set(v) = p.edit().putBoolean("places", v).apply()
+
+  /** With [places]: every arrival and leaving is also told as the bare event, for "when I arrive anywhere". Each is an answer paid for. */
+  var placeOffers: Boolean
+    get() = p.getBoolean("placeOffers", false)
+    set(v) = p.edit().putBoolean("placeOffers", v).apply()
+
+  /** The saved places as Jarvis last gave them ([app.jarvis.glasses.location.Places]), for their fences after a restart. */
+  var placesKept: String
+    get() = p.getString("placesKept", "").orEmpty()
+    set(v) = p.edit().putString("placesKept", v).apply()
+
+  /** Crossings Jarvis hasn't taken yet ([app.jarvis.glasses.location.Outbox]); none is kept past ten minutes. */
+  var placesWaiting: String
+    get() = p.getString("placesWaiting", "").orEmpty()
+    set(v) = p.edit().putString("placesWaiting", v).apply()
 
   val isSetUp: Boolean
     get() = Address.usable(url) && token.isNotEmpty()

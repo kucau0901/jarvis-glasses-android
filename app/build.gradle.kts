@@ -69,6 +69,7 @@ dependencies {
   implementation(libs.okhttp)
   implementation(libs.stream.webrtc)
   implementation(libs.play.services.wearable)
+  implementation(libs.play.services.location)
   implementation(libs.kotlinx.coroutines.play.services)
   implementation(libs.mwdat.core)
   implementation(libs.mwdat.camera)
