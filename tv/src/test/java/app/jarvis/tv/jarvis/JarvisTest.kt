@@ -37,6 +37,37 @@ class JarvisTest {
 
   @After fun tearDown() = server.shutdown()
 
+  @Test
+  fun theBrowserHandedOverIsADisplayWithNoPictureOfItsOwn() {
+    val shown = VoiceEvent.from(Json.parseToJsonElement("""{"type":"display","kind":"browser"}""").jsonObject)
+    assertEquals(VoiceEvent.Display("browser", ""), shown)
+    // Its screen is fetched again and again (browserScreen), not from an address.
+    assertNull(jarvis.pictureUrl(shown as VoiceEvent.Display))
+    assertNull(VoiceEvent.from(Json.parseToJsonElement("""{"type":"display","kind":"hologram"}""").jsonObject))
+  }
+
+  @Test
+  fun theBrowsersScreenIsReadWithTheSignIn() = runTest {
+    prefs.token = "jss1_tv"
+    reply("""{"jpeg":"/9j/4AAQ","width":1280,"height":800,"url":"https://portal.example.com/login","title":"Sign in"}""")
+    val s = jarvis.browserScreen()
+    assertEquals(BrowserScreen("/9j/4AAQ", "https://portal.example.com/login", "Sign in"), s)
+    assertEquals("Sign in", s.heading)
+    assertEquals("https://portal.example.com/login", s.copy(title = "").heading)
+    val req = server.takeRequest()
+    assertEquals("GET", req.method)
+    assertEquals("/api/browser/screen", req.path)
+    assertEquals("Bearer jss1_tv", req.getHeader("Authorization"))
+  }
+
+  @Test
+  fun noBrowserOrOneNotAnsweringIsSaidInJarvissWords() = runTest {
+    reply("""{"error":"No browser is set up"}""", 404)
+    reply("""{"error":"The browser is not answering"}""", 503)
+    val said = List(2) { runCatching { jarvis.browserScreen() }.exceptionOrNull() as Jarvis.JarvisException }
+    assertEquals(listOf("No browser is set up" to 404, "The browser is not answering" to 503), said.map { it.message to it.status })
+  }
+
   private fun reply(body: String, code: Int = 200) = server.enqueue(MockResponse().setResponseCode(code).setBody(body))
 
   private fun RecordedRequest.json(): JsonObject = Json.parseToJsonElement(body.readUtf8()).jsonObject

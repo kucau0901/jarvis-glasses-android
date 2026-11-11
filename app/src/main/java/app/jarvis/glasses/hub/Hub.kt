@@ -1,5 +1,7 @@
 package app.jarvis.glasses.hub
 
+import app.jarvis.glasses.chat.BrowserInput
+import app.jarvis.glasses.chat.BrowserScreen
 import app.jarvis.glasses.jarvis.JarvisClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -123,6 +125,17 @@ class Hub(private val client: JarvisClient) {
   /** A fresh link to a page Jarvis made (GET /api/page), to open in the browser. */
   suspend fun pageLink(id: String): String =
       get<PageLink>("/api/page?id=${enc(id)}").viewUrl.ifEmpty { throw JarvisClient.JarvisException("That page is gone") }
+
+  // The browser Jarvis works in, handed over in Chat ([app.jarvis.glasses.chat.Shown.Browser]). Both need the
+  // `browser` scope; Jarvis answers 404 with no browser set up and 503 when it does not answer, in words.
+
+  /** The browser's screen as it is now (GET /api/browser/screen). */
+  suspend fun browserScreen(): BrowserScreen = get("/api/browser/screen")
+
+  /** What the person did on it ([BrowserInput]), at most [BrowserInput.MOST] at once: real input, to the browser and nowhere else. */
+  suspend fun browserInput(events: List<JsonObject>) {
+    post<JsonObject>("/api/browser/input", BrowserInput.body(events))
+  }
 
   /** Your panels in this order (their ids), as dragging them on the web keeps it: for you, on every screen. */
   suspend fun orderPanels(ids: List<String>): List<String> = post<OrderReply>("/api/hub/panels/order", orderBody(null, ids)).order

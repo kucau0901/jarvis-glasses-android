@@ -1,5 +1,7 @@
 package app.jarvis.glasses.hub
 
+import app.jarvis.glasses.chat.BrowserInput
+import app.jarvis.glasses.chat.BrowserScreen
 import app.jarvis.glasses.jarvis.JarvisClient
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -42,6 +44,36 @@ class HubTest {
     assertEquals("PATCH", req.method)
     assertEquals("/api/hub/me", req.path)
     assertEquals("off", Json.parseToJsonElement(req.body.readUtf8()).jsonObject["prefs"]!!.jsonObject["alertTalk"]!!.jsonPrimitive.content)
+  }
+
+  @Test
+  fun theBrowsersScreenIsReadAndPressedWithTheSignIn() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"jpeg":"/9j/4AAQ","width":1280,"height":800,"url":"https://portal.example.com/login","title":"Sign in","more":1}"""))
+    assertEquals(BrowserScreen("/9j/4AAQ", 1280, 800, "https://portal.example.com/login", "Sign in"), hub.browserScreen())
+    val read = server.takeRequest()
+    assertEquals("GET", read.method)
+    assertEquals("/api/browser/screen", read.path)
+    assertEquals("Bearer jss1_test", read.getHeader("Authorization"))
+    assertEquals("cf", read.getHeader("CF-Access-Client-Id"))
+
+    server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+    val at = BrowserScreen.Point(640, 400)
+    hub.browserInput(listOf(BrowserInput.mouse("down", at), BrowserInput.mouse("up", at)))
+    val pressed = server.takeRequest()
+    assertEquals("POST", pressed.method)
+    assertEquals("/api/browser/input", pressed.path)
+    assertEquals("Bearer jss1_test", pressed.getHeader("Authorization"))
+    assertEquals("cf", pressed.getHeader("CF-Access-Client-Id"))
+    assertEquals("""{"events":[{"kind":"mouse","type":"down","x":640,"y":400},{"kind":"mouse","type":"up","x":640,"y":400}]}""", pressed.body.readUtf8())
+  }
+
+  @Test
+  fun noBrowserOrOneNotAnsweringIsSaidInJarvissWords() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"No browser is set up"}"""))
+    server.enqueue(MockResponse().setResponseCode(503).setBody("""{"error":"The browser is not answering"}"""))
+    server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":"This needs the browser scope"}"""))
+    val said = listOf(runCatching { hub.browserScreen() }, runCatching { hub.browserInput(listOf(BrowserInput.back)) }, runCatching { hub.browserScreen() }).map { it.exceptionOrNull()?.message }
+    assertEquals(listOf("No browser is set up", "The browser is not answering", "This needs the browser scope"), said)
   }
 
   @Test

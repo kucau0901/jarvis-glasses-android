@@ -32,8 +32,9 @@ sealed interface VoiceEvent {
 
   /**
    * Something to show: a place ("map", "streetview": [lat], [lng], [maptype]), a camera ([entity]),
-   * a picture Jarvis made ("image": [id]), a page it made ("page": [id]), or "close" for whatever is
-   * up. Its picture comes from [Jarvis.pictureUrl].
+   * a picture Jarvis made ("image": [id]), a page it made ("page": [id]), the browser it works in
+   * handed over ("browser": nothing else comes with it), or "close" for whatever is up. Its picture
+   * comes from [Jarvis.pictureUrl]; the browser's, again and again, from [Jarvis.browserScreen].
    */
   data class Display(
       val kind: String,
@@ -88,7 +89,7 @@ sealed interface VoiceEvent {
         "camera" -> o.str("entity")?.takeIf { it.isNotBlank() }?.let { Display(kind, label.ifEmpty { "Camera" }, entity = it) }
         "image" -> o.str("image")?.takeIf { it.isNotBlank() }?.let { Display(kind, label, id = it) }
         "page" -> o.str("page")?.takeIf { it.isNotBlank() }?.let { Display(kind, label.ifEmpty { "Page" }, id = it) }
-        "close" -> Display(kind, label)
+        "browser", "close" -> Display(kind, label)
         else -> null
       }
     }

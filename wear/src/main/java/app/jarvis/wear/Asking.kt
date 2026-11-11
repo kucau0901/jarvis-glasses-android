@@ -22,7 +22,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * the watch ([say]). Asking again, or [stop], hangs up the one before.
  *
  * The phone not answering at all in [firstReplyMs] (out of reach, its app not there) fails the
- * question rather than leaving it waiting; once it has answered, Jarvis may take a while.
+ * question rather than leaving it waiting; once it has answered, Jarvis may take a while, up to
+ * [LONGEST_MS].
  */
 class Asking(
     private val scope: CoroutineScope,
@@ -36,7 +37,7 @@ class Asking(
     private val hush: () -> Unit,
     private val newId: () -> String = { UUID.randomUUID().toString() },
     private val firstReplyMs: Long = 15_000,
-    private val longestMs: Long = 180_000,
+    private val longestMs: Long = LONGEST_MS,
 ) {
   sealed interface State {
     data object Idle : State
@@ -138,5 +139,12 @@ class Asking(
   companion object {
     /** About what a written answer fits on the round screen without much scrolling. */
     const val CHARS = 300
+
+    /**
+     * The longest a whole answer is waited for. Work in Jarvis's browser takes up to twenty steps,
+     * each a page opened, read or pressed, which three minutes cut short; five is what the G2's own
+     * app gives an answer, and about as long as a wrist is worth holding up.
+     */
+    const val LONGEST_MS = 300_000L
   }
 }

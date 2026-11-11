@@ -206,7 +206,7 @@ class Jarvis(private val prefs: TvPrefs, private val http: OkHttpClient = defaul
 
   // Pictures for a Display, from Jarvis's own proxies so no Maps key or Home Assistant token reaches the TV
 
-  /** Where [d]'s picture is, [w]×[h] for a map; null for a page or "close", which have none. */
+  /** Where [d]'s picture is, [w]×[h] for a map; null for a page, the browser ([browserScreen]) or "close", which have none. */
   fun pictureUrl(d: VoiceEvent.Display, w: Int = 960, h: Int = 540): String? {
     val path =
         when (d.kind) {
@@ -223,6 +223,14 @@ class Jarvis(private val prefs: TvPrefs, private val http: OkHttpClient = defaul
         }
     return prefs.url + path
   }
+
+  /**
+   * The screen of the browser Jarvis works in, as it is now (GET /api/browser/screen; docs/api.md,
+   * "The browser's screen"): asked for about twice a second while it is on the TV. To look at only:
+   * the TV sends the browser nothing, a phone presses and types. Needs the `browser` scope; Jarvis
+   * says in words when no browser is set up (404) or it does not answer (503).
+   */
+  suspend fun browserScreen(): BrowserScreen = decode(exec(builder("/api/browser/screen").get().build()))
 
   /** The sign-in and gateway headers, for loading a picture some other way. Secret: never log them. */
   fun headers(): Map<String, String> = buildMap {

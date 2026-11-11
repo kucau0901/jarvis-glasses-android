@@ -11,6 +11,11 @@ class StepsTest {
     assertEquals("Checking your mail", Steps.doing("mail_check"))
     assertEquals("Checking", Steps.doing("home-assistant__ha_get_state"))
     assertEquals("Working", Steps.doing("something_new"))
+    // Work in the browser is up to twenty of these: each says what it is, not "Working".
+    assertEquals(
+        listOf("Opening the page", "Reading the page", "Pressing", "Filling in", "Closing the tab", "Signing in", "Showing you the page"),
+        listOf("browser_open", "browser_read", "browser_press", "browser_fill", "browser_close_tab", "browser_sign_in", "browser_show").map(Steps::doing),
+    )
   }
 
   @Test

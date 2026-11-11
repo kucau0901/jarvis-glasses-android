@@ -53,7 +53,7 @@ import kotlinx.coroutines.withContext
 /**
  * What Jarvis put on the screen, drawn under its answer in Chat ([Shown]), as the web's stage
  * shows it (ui/Stage.ts there): a map or Street View to tap into Google Maps, a camera live for a
- * while, a picture to save, a page to open.
+ * while, a picture to save, a page to open, the browser handed over ([BrowserCard]).
  */
 @Composable
 internal fun ShownCard(hub: Hub, s: Shown, key: String, person: Boolean) {
@@ -62,6 +62,7 @@ internal fun ShownCard(hub: Hub, s: Shown, key: String, person: Boolean) {
     is Shown.Camera -> CameraCard(hub, s, key, person)
     is Shown.Picture -> PictureCard(hub, s)
     is Shown.Page -> PageCard(hub, MadePage(s.id, s.title))
+    Shown.Browser -> BrowserCard(hub, key)
     Shown.Close -> Unit
   }
 }
@@ -84,11 +85,13 @@ internal object ShownPictures {
   fun moved(from: String, to: String) {
     liveUntil.remove(from)?.let { liveUntil[to] = it }
     kept.remove("camera:$from")?.let { kept.put("camera:$to", it) }
+    BrowserCards.moved(from, to)
   }
 
   fun forget() {
     kept.evictAll()
     liveUntil.clear()
+    BrowserCards.forget()
   }
 }
 

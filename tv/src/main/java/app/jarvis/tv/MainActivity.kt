@@ -134,7 +134,9 @@ class MainActivity : ComponentActivity() {
     // Home has nowhere to go back to: Back closes the page over it, or stops listening and Jarvis talking.
     onBackPressedDispatcher.addCallback(this) {
       if (screen == Screen.SignIn) tv.stopPairing()
-      if (screen != Screen.Home) {
+      if (tv.browser) {
+        tv.closeBrowser()
+      } else if (screen != Screen.Home) {
         screen = Screen.Home
       } else {
         voice.stop()
@@ -164,6 +166,8 @@ class MainActivity : ComponentActivity() {
             }
         StatusStrip(line, Modifier.align(if (screen is Screen.Thing) Alignment.TopCenter else Alignment.BottomCenter))
       }
+      // The browser Jarvis handed over, over everything: to watch; a phone presses and types.
+      if (tv.browser) BrowserView(tv::browserScreen, tv.answer.ifBlank { tv.working })
     }
   }
 

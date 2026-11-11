@@ -9,7 +9,7 @@ import kotlinx.serialization.json.doubleOrNull
 
 /**
  * What Jarvis put on the screen for an answer: a `display` event (tools/place.ts, camera.ts,
- * image.ts and page.ts in jarvis-voice-agent), which the web app draws on its stage (ui/Stage.ts)
+ * image.ts, page.ts and browser.ts in jarvis-voice-agent), which the web app draws on its stage (ui/Stage.ts)
  * and Chat here draws under the answer. Each is fetched from Jarvis with the sign-in, as the web
  * fetches it, so no Google key or Home Assistant token reaches the phone.
  */
@@ -63,6 +63,13 @@ sealed interface Shown {
   /** A page Jarvis made: a card to open, kept with its answer ([app.jarvis.glasses.hub.Said.page]). */
   data class Page(val id: String, val title: String) : Shown
 
+  /**
+   * The browser Jarvis works in, handed over for what it never does itself (a sign-in, an "are you
+   * human" check, a choice): its screen to watch and press ([BrowserScreen], [BrowserHand]). The
+   * event carries nothing else.
+   */
+  data object Browser : Shown
+
   /** "Close that": what is on the screen goes. */
   data object Close : Shown
 
@@ -87,6 +94,7 @@ sealed interface Shown {
         "camera" -> o.str("entity")?.takeIf { it.isNotBlank() }?.let { Camera(it, label.ifEmpty { "Camera" }) }
         "image" -> o.str("image")?.takeIf { it.isNotBlank() }?.let { Picture(it, label) }
         "page" -> o.str("page")?.takeIf { it.isNotBlank() }?.let { Page(it, label.ifEmpty { "Page" }) }
+        "browser" -> Browser
         "close" -> Close
         else -> null
       }

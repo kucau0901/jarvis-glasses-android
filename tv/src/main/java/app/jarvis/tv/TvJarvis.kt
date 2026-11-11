@@ -71,6 +71,10 @@ class TvJarvis(context: Context, private val scope: CoroutineScope) {
   var picture by mutableStateOf<ImageBitmap?>(null)
     private set
 
+  /** The browser Jarvis handed over is up, over everything ([BrowserView]): to watch here, to press on a phone. */
+  var browser by mutableStateOf(false)
+    private set
+
   /**
    * A short line for what isn't an answer: a button's reply, a removal, something that went wrong.
    * Kept apart from the answer, so it never wipes one, and gone after a few seconds.
@@ -245,6 +249,7 @@ class TvJarvis(context: Context, private val scope: CoroutineScope) {
     working = "Thinking"
     answer = ""
     picture = null
+    browser = false
     val context = recent()
     lateinit var me: Job
     me =
@@ -257,7 +262,12 @@ class TvJarvis(context: Context, private val scope: CoroutineScope) {
                 is VoiceEvent.Progress -> working = e.text
                 // Away from the answer's events, so its words and voice don't wait on these.
                 is VoiceEvent.Tool -> if (e.done && e.name.startsWith("panel_")) scope.launch { refresh(quietly = true) }
-                is VoiceEvent.Display -> jarvis.pictureUrl(e)?.let { url -> scope.launch { load(url)?.let { if (asking === me) picture = it } } }
+                is VoiceEvent.Display ->
+                    when (e.kind) {
+                      "browser" -> browser = true
+                      "close" -> browser = false
+                      else -> jarvis.pictureUrl(e)?.let { url -> scope.launch { load(url)?.let { if (asking === me) picture = it } } }
+                    }
                 is VoiceEvent.Result -> {
                   said = e.text
                   failedAnswer = e.error
@@ -299,7 +309,21 @@ class TvJarvis(context: Context, private val scope: CoroutineScope) {
     working = ""
     answer = ""
     picture = null
+    browser = false
     notice = ""
+  }
+
+  /** Back, with the browser up: it goes, and Jarvis carries on. */
+  fun closeBrowser() {
+    browser = false
+  }
+
+  /** The browser's screen now and its picture, for [BrowserView]; a failure is Jarvis's own words. */
+  suspend fun browserScreen(): Pair<String, ImageBitmap?> {
+    val s = jarvis.browserScreen()
+    return s.heading to withContext(Dispatchers.Default) {
+      runCatching { java.util.Base64.getDecoder().decode(s.jpeg) }.getOrNull()?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.asImageBitmap()
+    }
   }
 
   fun signedInNow() {

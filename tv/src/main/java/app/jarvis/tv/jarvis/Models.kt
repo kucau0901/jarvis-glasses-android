@@ -136,3 +136,11 @@ data class Reading(
 @Serializable data class HistoryPoint(val t: Long, val v: Double)
 
 @Serializable data class OrderReply(val order: List<String> = emptyList())
+
+/** The browser's screen: a base64 JPEG, with the page's [title] and address ([url]). */
+@Serializable
+data class BrowserScreen(val jpeg: String = "", val url: String = "", val title: String = "") {
+  /** What the TV says of it: the page's title, or its address when it has none. */
+  val heading: String
+    get() = title.trim().ifEmpty { url.trim() }
+}
