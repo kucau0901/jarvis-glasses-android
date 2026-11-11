@@ -236,6 +236,8 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
     // A conversation going on, just above the message box however tall it grows.
     LiveWave(app, Modifier.align(Alignment.BottomCenter).padding(bottom = with(LocalDensity.current) { composer.toDp() }))
   }
+  // The browser Jarvis handed over, in full screen: over everything, whatever the list has scrolled to.
+  BrowserFullScreen(app.hub)
 }
 
 /**

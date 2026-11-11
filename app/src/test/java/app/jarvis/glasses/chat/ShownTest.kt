@@ -36,6 +36,8 @@ class ShownTest {
     assertEquals("/api/image?id=img_abc123", (shown("""{"type":"display","kind":"image","image":"img_abc123","label":"a cat"}""") as Shown.Picture).path)
     assertEquals(Shown.Page("pg_1", "Trip plan"), shown("""{"type":"display","kind":"page","page":"pg_1","label":"Trip plan"}"""))
     assertEquals(Shown.Close, shown("""{"type":"display","kind":"close"}"""))
+    // The browser handed over: the event carries nothing else.
+    assertEquals(Shown.Browser, shown("""{"type":"display","kind":"browser"}"""))
   }
 
   @Test

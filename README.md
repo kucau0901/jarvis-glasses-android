@@ -104,6 +104,15 @@ on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by ste
   while Jarvis is busy.
 - **Live voice** (Home or Settings → Voice) switches Talk and "Hey Meta" to GPT-Live. Choose how
   long a quiet session stays open under Settings → Voice.
+- **The browser card.** When Jarvis works in its own browser and the page needs a person (a
+  sign-in, an "are you human" check, a choice), it hands the page over: a **Browser** card appears
+  in Chat with the page's screen. Press and drag on the picture as you would the page; type in the
+  box and tap **Send** (hidden as typed until **Show**), with **Enter**, **Backspace**, **Back**
+  and **Up**/**Down** beside it; **Full screen** turns the phone on its side. What you type goes to
+  the browser only, never into the conversation. It needs a browser set up on the Jarvis side
+  (`BROWSER_URL`) and the `browser` scope, which an admin's sign-in with a code has; without them
+  the card says what Jarvis said. The TV app shows the same screen to watch, pressed from a phone;
+  the watch and the glasses get no hand-over.
 - **Alerts start a conversation.** Every alert is in Chat as it arrives. When Jarvis says to talk
   about it, the glasses say it and listen for your reply: in a live session that opens by saying it
   when Live voice is on, else turn by turn; into the session already open, if one is. Whether Jarvis
@@ -238,6 +247,7 @@ something.
 | Live voice | WebRTC (`live/LiveVoice.kt`) to Jarvis's `/api/session` (`client: "glasses"` through the glasses, from Jarvis 2.8.0 by `/api/health`); tool calls relayed to `/api/v1/stream` as the web app does, with only the turns Jarvis answered (`live/LiveRelay.kt`). |
 | Signing in | Jarvis's pairing code (`jarvis/Pairing.kt`); the person's session reaches `/api/hub/…` (`hub/Hub.kt`) and, for an admin, the settings API (`hub/Admin.kt`). |
 | Chat | `ui/ChatScreen.kt`, its pills (`chat/Steps.kt`) and answers (`chat/Markdown.kt`, `ui/Answer.kt`), in the Hark look (`ui/Hark.kt`). |
+| The browser card | Jarvis's `display` of kind `browser` (`chat/Shown.kt`): the screen from `GET /api/browser/screen` about twice a second while the card is on screen, presses and typing to `POST /api/browser/input` one request after another (`chat/Browser.kt`, `ui/BrowserCard.kt`, the calls in `hub/Hub.kt`). On the TV, to watch only (`tv/…/BrowserView.kt`). |
 | Connecting a ChatGPT plan | The sign-in ends on `http://127.0.0.1:1455`, which the app answers itself (`jarvis/Loopback.kt`): nothing to paste. |
 | Running in a pocket | `JarvisService.kt`, a foreground service (microphone, connected device). |
 
@@ -249,11 +259,12 @@ something.
 
 Unit tests cover the event stream, alerts, pairing, the Jarvis API calls, end-of-speech detection,
 the phrases, the conversation loop with fakes, the live relay, the Home layout, Chat's pills and
-answers, the ChatGPT sign-in catcher, and the G2's framing, sign-in, pages, chat and touches. Meta's Mock Device Kit (debug builds) stands in for
+answers, the browser card's presses (where on the page a touch lands, and their order), the ChatGPT sign-in catcher, and the G2's framing, sign-in, pages, chat and touches. Meta's Mock Device Kit (debug builds) stands in for
 glasses. `.mcp.json` connects Meta's toolkit docs server.
 
 Not covered by tests, to try with the glasses: the headset routing, "Hey Meta", the camera, live
-voice's WebRTC, the closing tone, an alert arriving with the phone locked, and the G2's link,
+voice's WebRTC, the closing tone, an alert arriving with the phone locked, the browser card on a
+phone and a TV against a real Jarvis browser (touch, the keyboard, full screen), and the G2's link,
 microphone and LC3 decoder. A debug build shows a test alert on a G2 from the computer:
 `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --es text "'The gate is open.'"`;
 `--ei hold 5` instead holds the G2 for five minutes, to see whether the link stays up;

@@ -47,6 +47,13 @@ object Steps {
           "contacts_lookup" to "Looking up contacts",
           "make_image" to "Making the picture",
           "web_search" to "Searched the web",
+          "browser_open" to "Opening the page",
+          "browser_read" to "Reading the page",
+          "browser_press" to "Pressing",
+          "browser_fill" to "Filling in",
+          "browser_close_tab" to "Closing the tab",
+          "browser_sign_in" to "Signing in",
+          "browser_show" to "Showing you the page",
       )
 
   /** A tool call, as words. Another server's tool (an MCP one, "label__name") waits for its own note. */
