@@ -15,6 +15,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Places (Settings → Location, off until switched on): Android's geofences need the precise
+         position, and Android gives that only to an app that also asks for the approximate one. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- A place is crossed with the phone in a pocket and Jarvis closed: "Allow all the time". -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Android forgets an app's geofences when the phone restarts (location/BootReceiver). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".JarvisApp"
@@ -49,6 +57,22 @@
         <receiver
             android:name=".alerts.ReplyReceiver"
             android:exported="false" />
+
+        <!-- A saved place crossed: Android's geofencing tells this, which tells Jarvis (app/location). -->
+        <receiver
+            android:name=".location.GeofenceReceiver"
+            android:exported="false" />
+
+        <!-- The places' geofences put back after the phone restarts or the app is updated, from the
+             list kept on the phone. Exported, as Android itself sends these; it acts on nothing else. -->
+        <receiver
+            android:name=".location.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Kept running while an answer for the watch is on its way (Android 14's short service). -->
         <service

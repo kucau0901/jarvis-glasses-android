@@ -126,6 +126,12 @@ class EventsTest {
                   override fun onOpen(webSocket: WebSocket, response: Response) {
                     webSocket.send("""{"type":"conversation.said","said":[{"id":"x1_q","at":1,"role":"assistant","text":"Is the garage shut?"}]}""")
                   }
+
+                  // As Jarvis does when the app hangs up: without this the connection stays half shut, and
+                  // the server gives up waiting for it when it is shut down.
+                  override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    webSocket.close(code, null)
+                  }
                 },
             ),
     )

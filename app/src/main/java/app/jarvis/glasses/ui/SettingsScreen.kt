@@ -120,6 +120,7 @@ fun SettingsScreen(app: JarvisApp, hooks: Hooks) {
                                   token = outcome.token
                                   who = outcome.name.ifEmpty { "you" }
                                   app.prefs.signedInAs = who
+                                  app.personChanged()
                                   checkNow()
                                 }
                                 Pairing.Outcome.Expired -> check = "The code ran out; try again."
@@ -173,6 +174,7 @@ fun SettingsScreen(app: JarvisApp, hooks: Hooks) {
                   app.prefs.token = token
                   who = ""
                   app.prefs.signedInAs = ""
+                  app.personChanged()
                 }
                 checkNow()
               },
@@ -255,6 +257,11 @@ fun SettingsScreen(app: JarvisApp, hooks: Hooks) {
     // A person's own choices, kept by Jarvis: a device token has none.
     if (app.prefs.token.startsWith("jss1_")) {
       item { AlertChoices(app) }
+    }
+
+    // A person's own places, and off until they turn it on: a device token has none.
+    if (app.prefs.token.startsWith("jss1_")) {
+      item { LocationChoices(app, hooks) }
     }
 
     if (!hooks.backgroundAllowed) {

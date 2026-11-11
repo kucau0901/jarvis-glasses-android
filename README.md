@@ -28,12 +28,13 @@ features on the phone.
 | Chat | Typing to Jarvis in the look of Hark Pro: the same history as the web app's Chat, photos, pills showing what Jarvis is doing, rich answers (lists, tables, links), email drafts to send. |
 | Inbox | Jarvis's proposals waiting for your OK, and family messages. |
 | Settings | The Jarvis address and sign-in, the glasses, voice, theme, and for a family admin **Jarvis settings**: everything in the web app's Settings panel. |
+| Settings → Location | Off until you turn it on. Save the places that matter ("Corner Grocer", "Office") while standing in them, and the phone tells Jarvis when you arrive at or leave one, so a routine can act on it: "when I get to the grocer, tell me my shopping list". |
 
 Nothing on the Jarvis side changes: the app uses the same API as Jarvis's web app and devices.
 
 ## Set up
 
-In this order. Steps 1–3 get the app talking to Jarvis; step 4 is the glasses.
+In this order. Steps 1–3 get the app talking to Jarvis; step 4 is the glasses; step 5, location, is optional.
 
 ### 1. Build and install
 
@@ -95,7 +96,34 @@ Wearables Developer Center, with its IDs built into the app. It takes about half
 it waiting for Meta, and has a few traps (Developer Mode, for one, does *not* work for "Hey Meta"
 on Android). Follow **[docs/meta-glasses.md](docs/meta-glasses.md)** step by step.
 
-### 5. Use it
+### 5. Location (only if you want it)
+
+For routines that act on where you are. Signed in as a person (step 2), in **Settings → Location**:
+
+1. Turn on **Tell Jarvis when I arrive at or leave my places**. Android asks for location: choose
+   **Precise** and **While using the app**.
+2. Tap **Allow all the time**. Android asks for this separately, on its own settings page: choose
+   **Allow all the time** there and come back. Without it nothing is watched, because a place is
+   crossed with the phone in your pocket and Jarvis closed. (If Android no longer asks, the button
+   opens the app's page in Android's settings: Permissions → Location.)
+3. Standing in a place, type its name under **Save where I am now as…** and tap **Save**. Up to
+   twenty; the same name again moves that place; **Remove** takes one away.
+4. Tell Jarvis what to do there, in Chat or aloud: "when I get to the Corner Grocer, tell me my
+   shopping list", "when I leave the Office, tell me the best way home".
+
+**Offer something useful when I arrive** is a second switch, also off: every arrival and leaving is
+then put to Jarvis, which costs an answer each time. Tell Jarvis once what to offer: "when I arrive
+anywhere, tell me one useful thing about where I am, or stay quiet".
+
+**What leaves the phone.** The phone does the watching, with Android's own geofences; Jarvis is
+only told. When you save a place, its name and position go to your Jarvis, because you asked. When
+you cross one, Jarvis is sent that you arrived at or left that place, by its name, and nothing
+else. Where you are the rest of the time is never sent, the position Android measured at a crossing
+is not read, and nobody keeps a trail. A crossing that couldn't be sent is tried again for ten
+minutes and then dropped. All of it is off until you turn it on, on each phone, and turning it off
+or signing out takes the fences away. It needs Google Play services.
+
+### 6. Use it
 
 - **"Hey Meta, open Jarvis"**, wait for the beep, ask. Follow up within 5 s; say "thanks" to end.
   The closing tone (three falling notes) means Jarvis has stopped listening: say "Hey Meta, open
@@ -249,6 +277,7 @@ something.
 | Chat | `ui/ChatScreen.kt`, its pills (`chat/Steps.kt`) and answers (`chat/Markdown.kt`, `ui/Answer.kt`), in the Hark look (`ui/Hark.kt`). |
 | The browser card | Jarvis's `display` of kind `browser` (`chat/Shown.kt`): the screen from `GET /api/browser/screen` about twice a second while the card is on screen, presses and typing to `POST /api/browser/input` one request after another (`chat/Browser.kt`, `ui/BrowserCard.kt`, the calls in `hub/Hub.kt`). On the TV, to watch only (`tv/…/BrowserView.kt`). |
 | Connecting a ChatGPT plan | The sign-in ends on `http://127.0.0.1:1455`, which the app answers itself (`jarvis/Loopback.kt`): nothing to paste. |
+| Places | The list is Jarvis's (`GET`/`POST`/`DELETE /api/v1/places`, in `hub/Hub.kt`), kept on the phone too (`location/Places.kt`) and registered as Android geofences, one per place (`location/Fences.kt`); only what changed is added or removed. A crossing (`location/GeofenceReceiver.kt`) is `POST /api/v1/trigger` with `arrived:<slug>` or `left:<slug>`, and the bare `arrived`/`left` too when offers are on; one that fails waits and is dropped at ten minutes (`location/Outbox.kt`). After a restart or an update the fences are put back from the kept list (`location/BootReceiver.kt`). Jarvis's answer comes as an alert, like any other. |
 | Running in a pocket | `JarvisService.kt`, a foreground service (microphone, connected device). |
 
 ## Test
@@ -259,13 +288,17 @@ something.
 
 Unit tests cover the event stream, alerts, pairing, the Jarvis API calls, end-of-speech detection,
 the phrases, the conversation loop with fakes, the live relay, the Home layout, Chat's pills and
-answers, the browser card's presses (where on the page a touch lands, and their order), the ChatGPT sign-in catcher, and the G2's framing, sign-in, pages, chat and touches. Meta's Mock Device Kit (debug builds) stands in for
+answers, the browser card's presses (where on the page a touch lands, and their order), the places calls and the trigger, which geofences to add and remove when the list changes, what a crossing sends and the retry-or-drop rule, the ChatGPT sign-in catcher, and the G2's framing, sign-in, pages, chat and touches. Meta's Mock Device Kit (debug builds) stands in for
 glasses. `.mcp.json` connects Meta's toolkit docs server.
 
 Not covered by tests, to try with the glasses: the headset routing, "Hey Meta", the camera, live
 voice's WebRTC, the closing tone, an alert arriving with the phone locked, the browser card on a
-phone and a TV against a real Jarvis browser (touch, the keyboard, full screen), and the G2's link,
-microphone and LC3 decoder. A debug build shows a test alert on a G2 from the computer:
+phone and a TV against a real Jarvis browser (touch, the keyboard, full screen), the G2's link,
+microphone and LC3 decoder, and all of Location that needs a phone: the two permission steps
+(`MainActivity.kt`), the geofences themselves and how soon Android tells of a crossing
+(`location/Fences.kt`, `GeofenceReceiver.kt`), putting them back after a restart or an update
+(`BootReceiver.kt`), reading the position for a new place (`Here.kt`), the Settings section
+(`ui/LocationChoices.kt`), and what it costs the battery. A debug build shows a test alert on a G2 from the computer:
 `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --es text "'The gate is open.'"`;
 `--ei hold 5` instead holds the G2 for five minutes, to see whether the link stays up;
 `--ez menu true` opens the menu as "open Jarvis" would; `--ei listen 5` logs, for five minutes,
@@ -291,4 +324,8 @@ what the G2 sends while the Even app has it, without signing in.
   the phone, and the glasses use that for Even's dashboard.
 - Opened from inside a Meta AI call, Jarvis gets no sound from the glasses (the call holds them) and
   uses the phone's microphone and speaker. Say "Hey Meta, open Jarvis" outside a call.
+- Location: Android decides when a geofence counts as crossed, usually within a couple of minutes
+  and later with the phone still or Wi-Fi off, so "when I arrive" is not to the second. Switching
+  Location off in Android's settings drops the fences; open Settings → Location in the app to put
+  them back. Places changed on another screen reach this phone when Settings is next opened.
 - arm64 phones only (the WebRTC libraries are large).

@@ -38,6 +38,38 @@ class JarvisClientTest {
   @After fun tearDown() = server.shutdown()
 
   @Test
+  fun aTriggerTellsJarvisOfAnEventAndSaysWhetherItWasTaken() = runBlocking {
+    val behindAccess = JarvisClient({ server.url("/").toString() }, { "jss1_test" }, { mapOf("CF-Access-Client-Id" to "cf", "CF-Access-Client-Secret" to "shh") })
+    server.enqueue(MockResponse().setBody("""{"event":"arrived:corner_grocer","started":["r1"]}"""))
+    assertTrue(behindAccess.trigger("arrived:corner_grocer", "Corner Grocer"))
+    val req = server.takeRequest()
+    assertEquals("POST", req.method)
+    assertEquals("/api/v1/trigger", req.path)
+    assertEquals("Bearer jss1_test", req.getHeader("Authorization"))
+    assertEquals("cf", req.getHeader("CF-Access-Client-Id"))
+    assertEquals("shh", req.getHeader("CF-Access-Client-Secret"))
+    assertEquals("""{"event":"arrived:corner_grocer","text":"Corner Grocer"}""", req.body.readUtf8())
+
+    // No words to go with it: the event alone.
+    server.enqueue(MockResponse().setBody("""{"event":"left","started":[]}"""))
+    assertTrue(client.trigger("left", null))
+    assertEquals("""{"event":"left"}""", server.takeRequest().body.readUtf8())
+  }
+
+  @Test
+  fun aTriggerJarvisRefusedOrNeverGotWasNotTaken() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":"needs routines"}"""))
+    assertFalse(client.trigger("arrived:office", "Office"))
+    // Jarvis out of reach: nothing is listening there.
+    val gone = MockWebServer().apply { start() }
+    val nowhere = gone.url("/").toString()
+    gone.shutdown()
+    assertFalse(JarvisClient({ nowhere }, { "jss1_test" }).trigger("arrived:office", "Office"))
+    // No address set: nothing to send it to.
+    assertFalse(JarvisClient({ "" }, { "jss1_test" }).trigger("arrived:office", "Office"))
+  }
+
+  @Test
   fun transcribeSendsTheRecordingAndReadsWhatWasHeard() = runBlocking {
     server.enqueue(MockResponse().setBody("""{"ok":true,"transcript":" what's on today ","heardBy":"openai"}"""))
     assertEquals("what's on today", client.transcribe(byteArrayOf(1, 2, 3)))

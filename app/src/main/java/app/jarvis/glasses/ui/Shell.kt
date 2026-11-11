@@ -46,6 +46,12 @@ interface Hooks {
 
   fun allowBackground()
 
+  /** Asks for location while the app is in use: Android's own question, or its settings once that was refused. */
+  fun allowLocation()
+
+  /** Then "Allow all the time", which Android asks for apart, on its own settings page. */
+  fun allowLocationAlways()
+
   fun talk()
 
   /** Lets the person pick a photo; [onPicked] gets it as a JPEG of about 1024 px. */
@@ -54,6 +60,12 @@ interface Hooks {
   val cameraAllowed: Boolean
 
   val backgroundAllowed: Boolean
+
+  /** Precise location, while the app is in use. */
+  val locationAllowed: Boolean
+
+  /** And all the time: what a place crossed with the app closed needs. */
+  val locationAlwaysAllowed: Boolean
 
   /** "system", "light" or "dark"; setting it restyles the app at once. */
   var theme: String

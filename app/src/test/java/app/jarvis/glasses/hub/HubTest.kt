@@ -77,6 +77,51 @@ class HubTest {
   }
 
   @Test
+  fun thePlacesAreReadWithTheSignIn() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"places":[{"slug":"corner_grocer","name":"Corner Grocer","lat":10.5,"lng":20.25,"radius":150,"at":1700000000000,"more":1},{"slug":"office","name":"Office","lat":-10.125,"lng":-20.5,"radius":300.5,"at":1}]}"""))
+    assertEquals(listOf(Place("corner_grocer", "Corner Grocer", 10.5, 20.25, 150.0, 1700000000000), Place("office", "Office", -10.125, -20.5, 300.5, 1)), hub.places())
+    val req = server.takeRequest()
+    assertEquals("GET", req.method)
+    assertEquals("/api/v1/places", req.path)
+    assertEquals("Bearer jss1_test", req.getHeader("Authorization"))
+    assertEquals("cf", req.getHeader("CF-Access-Client-Id"))
+  }
+
+  @Test
+  fun aPlaceIsSavedWhereThePhoneIs() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"place":{"slug":"corner_grocer","name":"Corner Grocer","lat":10.5,"lng":20.25,"radius":150,"at":5}}"""))
+    assertEquals(Place("corner_grocer", "Corner Grocer", 10.5, 20.25, 150.0, 5), hub.savePlace("Corner Grocer", 10.5, 20.25))
+    val req = server.takeRequest()
+    assertEquals("POST", req.method)
+    assertEquals("/api/v1/places", req.path)
+    assertEquals("Bearer jss1_test", req.getHeader("Authorization"))
+    assertEquals("cf", req.getHeader("CF-Access-Client-Id"))
+    // No radius unless one was chosen: Jarvis has its own.
+    assertEquals("""{"name":"Corner Grocer","lat":10.5,"lng":20.25}""", req.body.readUtf8())
+
+    server.enqueue(MockResponse().setBody("""{"place":{"slug":"office","name":"Office","lat":-10.125,"lng":-20.5,"radius":300,"at":6}}"""))
+    hub.savePlace("Office", -10.125, -20.5, 300)
+    assertEquals("""{"name":"Office","lat":-10.125,"lng":-20.5,"radius":300}""", server.takeRequest().body.readUtf8())
+  }
+
+  @Test
+  fun aPlaceJarvisRefusesIsSaidInItsWords() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":"You have 20 places already; remove one first"}"""))
+    assertEquals("You have 20 places already; remove one first", runCatching { hub.savePlace("One more", 1.0, 2.0) }.exceptionOrNull()?.message)
+  }
+
+  @Test
+  fun aPlaceIsRemovedByItsSlug() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+    hub.removePlace("corner_grocer")
+    val req = server.takeRequest()
+    assertEquals("DELETE", req.method)
+    assertEquals("/api/v1/places?slug=corner_grocer", req.path)
+    assertEquals("Bearer jss1_test", req.getHeader("Authorization"))
+    assertEquals("cf", req.getHeader("CF-Access-Client-Id"))
+  }
+
+  @Test
   fun aPersonWithNoAlertChoicesHasTheDefaults() = runBlocking {
     server.enqueue(MockResponse().setBody("""{"owner":true,"role":"admin","scopes":["*"],"prefs":{}}"""))
     assertEquals(AlertPrefs("on", "on", "sender"), hub.me().prefs)

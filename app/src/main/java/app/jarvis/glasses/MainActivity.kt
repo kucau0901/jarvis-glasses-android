@@ -52,6 +52,12 @@ class MainActivity : ComponentActivity(), Hooks {
   override var backgroundAllowed by mutableStateOf(true)
     private set
 
+  override var locationAllowed by mutableStateOf(false)
+    private set
+
+  override var locationAlwaysAllowed by mutableStateOf(false)
+    private set
+
   private var chosenTheme by mutableStateOf("system")
 
   /** Where a notification asked to open: Chat, or the Inbox at a conversation. Counted, so the same place opens again. */
@@ -74,6 +80,13 @@ class MainActivity : ComponentActivity(), Hooks {
   private val cameraPermission =
       registerForActivityResult(Wearables.RequestPermissionContract()) { refreshCamera() }
 
+  // Location is not asked at first launch: only from Settings → Location, when its switch goes on.
+  private val locationPermission =
+      registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { asked(Manifest.permission.ACCESS_FINE_LOCATION) }
+
+  private val locationAlwaysPermission =
+      registerForActivityResult(ActivityResultContracts.RequestPermission()) { asked(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }
+
   private val photoPicker =
       registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(::readPhoto) }
 
@@ -84,6 +97,8 @@ class MainActivity : ComponentActivity(), Hooks {
     if (savedInstanceState == null && isVoiceInvocationsIntent(intent)) onHeyMeta()
     if (savedInstanceState == null) opened(intent)
     chosenTheme = jarvis.prefs.theme
+    locationAllowed = granted(Manifest.permission.ACCESS_FINE_LOCATION)
+    locationAlwaysAllowed = locationAllowed && granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
     setContent {
       val dark = if (theme == "system") isSystemInDarkTheme() else theme == "dark"
       LaunchedEffect(dark) {
@@ -131,6 +146,7 @@ class MainActivity : ComponentActivity(), Hooks {
   override fun onResume() {
     super.onResume()
     refreshCamera()
+    refreshLocation()
     backgroundAllowed = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
     // Notifications may have been switched on or off in Android's settings meanwhile.
     jarvis.refreshPresence()
@@ -160,6 +176,24 @@ class MainActivity : ComponentActivity(), Hooks {
     jarvis.scope.launch { cameraAllowed = jarvis.link.cameraAllowed() }
   }
 
+  /** Allowed or taken away, here or in Android's settings meanwhile: the places' fences follow. */
+  private fun refreshLocation() {
+    val fine = granted(Manifest.permission.ACCESS_FINE_LOCATION)
+    val always = fine && granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    if (fine == locationAllowed && always == locationAlwaysAllowed) return
+    locationAllowed = fine
+    locationAlwaysAllowed = always
+    jarvis.fences.refresh()
+  }
+
+  /** Refused, and Android won't ask again (or only approximate was given): its settings page for this app is where it is changed. */
+  private fun asked(permission: String) {
+    refreshLocation()
+    if (!granted(permission) && !shouldShowRequestPermissionRationale(permission)) {
+      startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+    }
+  }
+
   private fun readPhoto(uri: Uri) {
     val done = onPhoto ?: return
     jarvis.scope.launch {
@@ -187,6 +221,11 @@ class MainActivity : ComponentActivity(), Hooks {
   override fun allowBackground() {
     startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
   }
+
+  override fun allowLocation() = locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+
+  // Android 11 and later show no dialog for this: it opens the app's location page, where "Allow all the time" is.
+  override fun allowLocationAlways() = locationAlwaysPermission.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
 
   override fun talk() = JarvisService.start(this, JarvisService.ACTION_TALK)
 

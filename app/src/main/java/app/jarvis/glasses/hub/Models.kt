@@ -324,3 +324,16 @@ data class Routine(
 )
 
 @Serializable data class LastRun(val at: Long, val ok: Boolean, val detail: String = "")
+
+// Places (src/worker/lib/spots.ts)
+
+@Serializable data class PlacesReply(val places: List<Place> = emptyList())
+
+@Serializable data class OnePlace(val place: Place)
+
+/**
+ * A place the person saved, with its position: where their phone tells Jarvis they arrived or left
+ * (`arrived:<slug>`, `left:<slug>`). [radius]: how near counts as there, in metres.
+ */
+@Serializable
+data class Place(val slug: String, val name: String = "", val lat: Double = 0.0, val lng: Double = 0.0, val radius: Double = 150.0, val at: Long = 0)
