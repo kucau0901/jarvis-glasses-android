@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.jarvis.glasses.JarvisApp
 import app.jarvis.glasses.location.Here
+import app.jarvis.glasses.location.Offer
 import kotlinx.coroutines.launch
 
 /**
@@ -53,6 +54,12 @@ fun LocationChoices(app: JarvisApp, hooks: Hooks) {
     if (!on) return@LaunchedEffect
     sync()
     app.fences.refresh()
+  }
+
+  // With the offers on, the routine that answers them is there: made now if it is missing (the
+  // switch was on before it made one, or the routine was removed elsewhere).
+  LaunchedEffect(on, offers) {
+    if (on && offers) runCatching { app.offer.ensure() }.onFailure { note = it.message ?: "Couldn't reach Jarvis" }
   }
 
   Section("Location") {
@@ -135,9 +142,15 @@ fun LocationChoices(app: JarvisApp, hooks: Hooks) {
     }
     if (note.isNotEmpty()) Text(note, style = MaterialTheme.typography.bodySmall, color = if (busy) Even.colors.dim else Even.colors.danger)
 
-    Toggle("Offer something useful when I arrive", offers) { offers = it; app.prefs.placeOffers = it }
+    Toggle("Offer something useful when I arrive", offers) {
+      offers = it
+      app.prefs.placeOffers = it
+      note = ""
+      // Going on is the effect above; going off takes its routine away.
+      if (!it) scope.launch { runCatching { app.offer.stop() }.onFailure { e -> note = e.message ?: "Couldn't reach Jarvis" } }
+    }
     Text(
-        "Every arrival and leaving is then also put to Jarvis, which costs an answer each time. Tell Jarvis once what to offer, for example by saying to it: \"when I arrive anywhere, tell me one useful thing about where I am, or stay quiet\".",
+        "Every arrival is then also put to Jarvis, which costs an answer each time, and it tells you only what is worth an alert. This keeps a routine named \"${Offer.NAME}\" with your others; ask Jarvis to change what it offers.",
         style = MaterialTheme.typography.bodySmall,
         color = Even.colors.dim,
     )

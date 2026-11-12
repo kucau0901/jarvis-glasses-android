@@ -111,9 +111,11 @@ For routines that act on where you are. Signed in as a person (step 2), in **Set
 4. Tell Jarvis what to do there, in Chat or aloud: "when I get to the Corner Grocer, tell me my
    shopping list", "when I leave the Office, tell me the best way home".
 
-**Offer something useful when I arrive** is a second switch, also off: every arrival and leaving is
-then put to Jarvis, which costs an answer each time. Tell Jarvis once what to offer: "when I arrive
-anywhere, tell me one useful thing about where I am, or stay quiet".
+**Offer something useful when I arrive** is a second switch, also off: every arrival is then put
+to Jarvis, which costs an answer each time, and it alerts you only when something is worth it.
+Turning it on makes a routine named "Something useful where I arrive", listed with your others;
+turning it off removes it. Ask Jarvis to change what it offers. A routine of your own for arriving
+anywhere is used instead, and left alone.
 
 **What leaves the phone.** The phone does the watching, with Android's own geofences; Jarvis is
 only told. When you save a place, its name and position go to your Jarvis, because you asked. When

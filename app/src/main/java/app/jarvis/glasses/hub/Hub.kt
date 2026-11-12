@@ -237,6 +237,24 @@ class Hub(private val client: JarvisClient) {
     )
   }
 
+  /** A routine set off by [event]: Jarvis is asked [ask], and its answer sent only when it is worth an alert. */
+  suspend fun addOnEvent(name: String, event: String, ask: String) {
+    post<JsonObject>(
+        "/api/v1/routines",
+        buildJsonObject {
+          put("name", name)
+          put("when", "event")
+          put("event", event)
+          put("ask", ask)
+          put("notify", "if-important")
+        },
+    )
+  }
+
+  suspend fun removeRoutine(id: String) {
+    send<JsonObject>("DELETE", "/api/v1/routines?id=${enc(id)}", buildJsonObject {})
+  }
+
   // Places (docs/api.md, "Places: arriving and leaving"): the caller's own, with `routines`
 
   suspend fun places(): List<Place> = get<PlacesReply>("/api/v1/places").places
