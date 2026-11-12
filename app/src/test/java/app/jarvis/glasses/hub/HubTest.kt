@@ -122,6 +122,26 @@ class HubTest {
   }
 
   @Test
+  fun aRoutineForAnEventAsksJarvisAndTellsOnlyWhatMatters() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(201).setBody("""{"ok":true,"routine":{"id":"r1"}}"""))
+    hub.addOnEvent("On arriving", "arrived", "What is useful here?")
+    val req = server.takeRequest()
+    assertEquals("POST", req.method)
+    assertEquals("/api/v1/routines", req.path)
+    assertEquals("""{"name":"On arriving","when":"event","event":"arrived","ask":"What is useful here?","notify":"if-important"}""", req.body.readUtf8())
+    assertEquals("Bearer jss1_test", req.getHeader("Authorization"))
+  }
+
+  @Test
+  fun aRoutineIsRemovedByItsId() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"ok":true,"id":"r 1"}"""))
+    hub.removeRoutine("r 1")
+    val req = server.takeRequest()
+    assertEquals("DELETE", req.method)
+    assertEquals("/api/v1/routines?id=r+1", req.path)
+  }
+
+  @Test
   fun aPersonWithNoAlertChoicesHasTheDefaults() = runBlocking {
     server.enqueue(MockResponse().setBody("""{"owner":true,"role":"admin","scopes":["*"],"prefs":{}}"""))
     assertEquals(AlertPrefs("on", "on", "sender"), hub.me().prefs)

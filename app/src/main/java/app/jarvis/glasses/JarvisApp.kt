@@ -24,6 +24,7 @@ import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.jarvis.Pairing
 import app.jarvis.glasses.live.LiveVoice
 import app.jarvis.glasses.location.Fences
+import app.jarvis.glasses.location.Offer
 import app.jarvis.glasses.location.Outbox
 import app.jarvis.glasses.location.Places
 import app.jarvis.glasses.watch.HubWrist
@@ -65,6 +66,7 @@ class JarvisApp : Application() {
   lateinit var places: Places
   lateinit var fences: Fences
   lateinit var outbox: Outbox
+  lateinit var offer: Offer
 
   /** Whether this phone tells Jarvis of arriving and leaving: switched on here, by a signed-in person. */
   val tellsPlaces: Boolean
@@ -87,6 +89,7 @@ class JarvisApp : Application() {
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
     places = Places(hub::places, { prefs.placesKept }, { prefs.placesKept = it }, changed = { fences.apply(it) })
     fences = Fences(this, on = { tellsPlaces }, places = { places.list.value })
+    offer = Offer(hub::routines, hub::addOnEvent, hub::removeRoutine)
     outbox = Outbox({ prefs.placesWaiting }, { prefs.placesWaiting = it }, System::currentTimeMillis, on = { tellsPlaces }) { client.trigger(it.event, it.text) }
     // Asked as the watch's own screen, with Chat's conversation (read again first, as Talk has it)
     // for context; spoken answers are Jarvis's mp3, written ones fit the watch's round screen.
