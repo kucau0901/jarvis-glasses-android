@@ -507,13 +507,13 @@ class HubTest {
   @Test
   fun aJobStartsWhereItWasAskedToLook() = runBlocking {
     server.enqueue(MockResponse().setResponseCode(201).setBody("""{"ok":true,"job":{"id":"j1","title":"Dashcams","status":"running","reach":"web"}}"""))
-    assertEquals("web", hub.startJob("Compare three dashcams under RM800", "web").reach)
+    assertEquals("web", hub.startJob(NewJob("Compare three dashcams under RM800", "web")).reach)
     val req = server.takeRequest()
     assertEquals("/api/v1/jobs", req.path)
     assertEquals("""{"task":"Compare three dashcams under RM800","reach":"web"}""", req.body.readUtf8())
     // Refused: Jarvis's own words reach whoever pressed Start.
     server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":"three of your jobs are at work already: wait for one, or stop one"}"""))
-    val e = runCatching { hub.startJob("Another", "private") }.exceptionOrNull()
+    val e = runCatching { hub.startJob(NewJob("Another", "private")) }.exceptionOrNull()
     assertTrue(e?.message.orEmpty().contains("three of your jobs are at work already"))
   }
 
@@ -604,5 +604,57 @@ class HubTest {
     val req = server.takeRequest()
     assertEquals("/api/google/unlink", req.path)
     assertEquals("""{"account":"4e5f6a7b"}""", req.body.readUtf8())
+  }
+
+  @Test
+  fun aWorkingJobIsToldChangedAndItsHelperStopped() = runBlocking {
+    repeat(4) { server.enqueue(MockResponse().setBody("""{"ok":true}""")) }
+    hub.tellJob("j1", "Only ones I can have this week")
+    assertEquals("""{"id":"j1","text":"Only ones I can have this week"}""", server.takeRequest().body.readUtf8())
+    hub.changeCard("j1", JobCard("Three dashcams", listOf("Under RM800"), emptyList()))
+    var req = server.takeRequest()
+    assertEquals("/api/v1/jobs/card", req.path)
+    assertEquals("""{"id":"j1","outcome":"Three dashcams","limits":["Under RM800"],"assumptions":[]}""", req.body.readUtf8())
+    hub.stopHelper("j1", 2)
+    assertEquals("""{"id":"j1","helper":2}""", server.takeRequest().body.readUtf8())
+    hub.useKey("j1")
+    req = server.takeRequest()
+    assertEquals("/api/v1/jobs/key", req.path)
+  }
+
+  @Test
+  fun aJobsFileIsBytesAndWhatWentWrongIsSaid() = runBlocking {
+    server.enqueue(MockResponse().setBody("a,b\n1,2\n"))
+    assertEquals("a,b\n1,2\n", String(hub.jobFile("j1", 1)))
+    assertEquals("/api/v1/jobs/file?id=j1&n=1", server.takeRequest().path)
+    server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"no such file"}"""))
+    assertEquals("no such file", runCatching { hub.jobFile("j1", 9) }.exceptionOrNull()?.message)
+    server.enqueue(MockResponse().setResponseCode(503))
+    assertEquals("What keeps it is not answering just now", runCatching { hub.jobCsv("j1") }.exceptionOrNull()?.message)
+    // A brief too long to be taken whole is refused here, with how long it is.
+    val long = NewJob("x".repeat(NewJob.MAX_BRIEF + 1))
+    assertTrue(runCatching { hub.startJob(long) }.exceptionOrNull()?.message.orEmpty().contains("4001 characters"))
+  }
+
+  @Test
+  fun aWholeJobIsRead() = runBlocking {
+    server.enqueue(
+        MockResponse()
+            .setBody(
+                """{"job":{"id":"j1","title":"Expenses","status":"running","engine":"jarvis","mode":"files","steps":6,"reach":"private",
+                    "card":{"outcome":"A spreadsheet","limits":["By month"],"assumptions":[]},"todo":[{"text":"Read the receipts","state":"done"}],
+                    "doing":["run"],"limits":{"steps":25,"going":60,"minutes":60},"helpers":[{"n":1,"name":"March","state":"working","doing":["read_file"]}],
+                    "files":[{"n":1,"name":"expenses.xlsx","size":20480,"at":5}],"ran":[{"at":5,"cmd":"python3 make.py","code":0,"ms":800},{"at":6,"cmd":"sleep 9","code":"SIGTERM"}],
+                    "project":{"id":"p1","name":"Household"},"using":{"id":"s1","name":"Monthly report"},"table":{"rows":0},"carried":1}}""",
+            ),
+    )
+    val j = hub.job("j1")
+    assertEquals("A spreadsheet", j.card?.outcome)
+    assertEquals(listOf("run"), j.doing)
+    assertEquals("March", j.helpers.single().name)
+    assertEquals("expenses.xlsx", j.files.single().name)
+    assertEquals("failed (SIGTERM)", JobWords.ended(j.ran[1]))
+    assertEquals("Household", j.project?.name)
+    assertEquals(60, j.limits?.minutes)
   }
 }

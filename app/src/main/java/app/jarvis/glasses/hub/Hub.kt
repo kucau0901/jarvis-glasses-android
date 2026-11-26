@@ -211,9 +211,6 @@ class Hub(internal val client: JarvisClient) {
 
   suspend fun job(id: String): Job = get<OneJob>("/api/v1/jobs?id=${enc(id)}").job
 
-  /** [reach]: "web" (searches, and nothing of theirs) or "private" (their own things, no web); Jarvis's default is the second. */
-  suspend fun startJob(task: String, reach: String): Job = post<OneJob>("/api/v1/jobs", buildJsonObject { put("task", task); put("reach", reach) }).job
-
   suspend fun cancelJob(id: String) {
     post<JsonObject>("/api/v1/jobs/cancel", buildJsonObject { put("id", id) })
   }
@@ -285,6 +282,26 @@ class Hub(internal val client: JarvisClient) {
   }
 
   // Plumbing
+
+  /**
+   * A file to save, as bytes. What went wrong in words: gone (404, kept 14 days or its job removed),
+   * changed since (409), or what keeps it not answering (503).
+   */
+  internal suspend fun bytes(path: String): ByteArray =
+      withContext(Dispatchers.IO) {
+        client.http.newCall(client.request(path).get().build()).execute().use { res ->
+          if (res.isSuccessful) return@use res.body?.bytes() ?: ByteArray(0)
+          val said = errorIn(res.body?.string().orEmpty())
+          throw JarvisClient.JarvisException(
+              when (res.code) {
+                404 -> said ?: "It is not kept any more"
+                409 -> said ?: "It is not as it was made"
+                503 -> said ?: "What keeps it is not answering just now"
+                else -> said ?: JarvisClient.errorOf(res.code, "")
+              },
+          )
+        }
+      }
 
   internal suspend inline fun <reified T> get(path: String): T =
       withContext(Dispatchers.IO) { decode(call(client.request(path).get().build())) }

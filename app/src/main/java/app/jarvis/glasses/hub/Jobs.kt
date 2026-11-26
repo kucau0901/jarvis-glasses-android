@@ -44,7 +44,105 @@ data class Job(
     val told: List<Told> = emptyList(),
     /** Dollars so far on the API key; null for a model with no listed price. */
     val cost: Double? = null,
+    val steps: Int = 0,
+    /** "thorough" (the stronger model) or "files" (it makes files in the workshop). */
+    val mode: String? = null,
+    /** It builds something, to publish with a tap; [repo], the repository it works on, with no web search. */
+    val build: Boolean = false,
+    val repo: String? = null,
+    val routine: Named? = null,
+    val project: Named? = null,
+    /** The specialty it follows. */
+    val using: Named? = null,
+    val helpers: List<Helper> = emptyList(),
+    /** How often a long one went on in a new conversation, from its notes. */
+    val carried: Int = 0,
+    val files: List<JobFile> = emptyList(),
+    val ran: List<Ran> = emptyList(),
+    val onKey: Boolean = false,
+    val table: TableInfo? = null,
+    val team: Team? = null,
+    /** What it set out to do, which its person may change while it works, and its checklist. */
+    val card: JobCard? = null,
+    val todo: List<Todo> = emptyList(),
+    /** The tools its step is running now; what it may take; and, out of that, of what (it is writing what it has). */
+    val doing: List<String> = emptyList(),
+    val limits: Limits? = null,
+    val wrapping: String? = null,
+    val deliveredBy: String? = null,
 )
+
+@Serializable data class JobCard(val outcome: String = "", val limits: List<String> = emptyList(), val assumptions: List<String> = emptyList())
+
+/** A line of its checklist: [state] "open", "doing", "done" or "dropped". */
+@Serializable data class Todo(val text: String = "", val state: String = "open", val why: String? = null)
+
+/** One of its helpers: [state] "working", "reported" or "stopped". */
+@Serializable
+data class Helper(val n: Int, val name: String = "", val state: String = "working", val doing: List<String> = emptyList(), val todo: List<Todo> = emptyList(), val why: String? = null)
+
+/** A command it ran in the workshop, and how it ended: no [code] while it runs; [by], its helper of that number. */
+@Serializable
+data class Ran(
+    val at: Long = 0,
+    val cmd: String = "",
+    val p: String? = null,
+    val by: Int? = null,
+    val code: kotlinx.serialization.json.JsonPrimitive? = null,
+    val ms: Long? = null,
+    val late: Boolean = false,
+    val full: Boolean = false,
+)
+
+/** A file it made, to save. */
+@Serializable data class JobFile(val n: Int, val name: String = "", val size: Long = 0, val at: Long = 0)
+
+@Serializable data class Limits(val steps: Int = 0, val going: Int = 0, val minutes: Int = 0)
+
+/** Research into a table: its columns, and how many rows came back, to download as CSV. */
+@Serializable data class TableInfo(val columns: List<String> = emptyList(), val rows: Int = 0)
+
+/** Research as a team: how many teams reported, and which part it is in while it runs. */
+@Serializable data class Team(val of: Int = 0, val reported: Int = 0, val phase: String? = null)
+
+/**
+ * A job to start, as the web's New job form makes one (src/app/ui/Jobs.ts there), its rules kept by
+ * [body]: research is always the web's and ordinary, building is the web's, and one on a
+ * repository looks neither way. [kind] "ordinary", "thorough", "files" or "build"; [research] "no",
+ * "deep", "team" or "table".
+ */
+data class NewJob(
+    val task: String,
+    val reach: String = "web",
+    val kind: String = "ordinary",
+    val helpers: Boolean = false,
+    val research: String = "no",
+    val repo: String? = null,
+    val specialty: String? = null,
+    val project: String? = null,
+) {
+  fun body(): JsonObject {
+    val research = research != "no"
+    val kind = if (research) "ordinary" else kind
+    return buildJsonObject {
+      put("task", task)
+      put("reach", if (research || kind == "build") "web" else reach)
+      if (kind != "ordinary") put("mode", kind)
+      if (kind == "build" && repo != null) put("repo", repo)
+      if (helpers && !research) put("helpers", true)
+      if (!research) specialty?.let { put("specialty", it) }
+      if (!research) project?.let { put("project", it) }
+      if (research) put("engine", "research")
+      if (this@NewJob.research == "team" || this@NewJob.research == "table") put("team", true)
+      if (this@NewJob.research == "table") put("table", true)
+    }
+  }
+
+  companion object {
+    /** The longest brief Jarvis takes whole (src/app/ui/Jobs.ts MAX_BRIEF). */
+    const val MAX_BRIEF = 4_000
+  }
+}
 
 /** Waiting until [until]: `for` "you" (a question) or "plan" (the ChatGPT plan's limit; [key] when it may go on with the API key). */
 @Serializable data class Waiting(@SerialName("for") val forWhat: String = "", val until: Long = 0, val key: KeyCost? = null)
@@ -61,7 +159,8 @@ data class JobAsked(val id: String, val at: Long = 0, val text: String = "", val
 
 @Serializable data class Answered(val at: Long = 0, val text: String = "")
 
-@Serializable data class Told(val at: Long = 0, val text: String = "", val taken: Boolean = false, val to: String? = null, val card: Boolean = false)
+/** What its person told it: [to] an answer to a question, [card] a change to its card, [taken] once a step had it, [helped] its helpers have it. */
+@Serializable data class Told(val at: Long = 0, val text: String = "", val taken: Boolean = false, val to: String? = null, val card: Boolean = false, val helped: Boolean = false)
 
 /** What one of their jobs asks them, as `GET /api/hub/proposals` lists it: the job and its title with the question. */
 @Serializable
@@ -87,3 +186,42 @@ suspend fun Hub.removeJob(id: String) {
 
 /** As much as a job is told at once (routes/jobs.ts). */
 const val TELL_MAX = 1_000
+
+suspend fun Hub.startJob(job: NewJob): Job {
+  if (job.task.length > NewJob.MAX_BRIEF) throw app.jarvis.glasses.jarvis.JarvisClient.JarvisException("It is ${job.task.length} characters, and a brief is ${NewJob.MAX_BRIEF} at most: shorten it, or its end would be left out.")
+  return post<OneJob>("/api/v1/jobs", job.body()).job
+}
+
+/** Tells one still working [text], in its person's own words: it takes it in at its next step. */
+suspend fun Hub.tellJob(id: String, text: String) {
+  post<JsonObject>("/api/v1/jobs/tell", buildJsonObject { put("id", id); put("text", text.take(TELL_MAX)) })
+}
+
+/** Its card changed while it works (each list given whole): what changed reaches it at its next step. */
+suspend fun Hub.changeCard(id: String, card: JobCard) {
+  post<JsonObject>(
+      "/api/v1/jobs/card",
+      buildJsonObject {
+        put("id", id)
+        put("outcome", card.outcome)
+        put("limits", kotlinx.serialization.json.JsonArray(card.limits.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        put("assumptions", kotlinx.serialization.json.JsonArray(card.assumptions.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+      },
+  )
+}
+
+/** Stops its helper [n]: the others go on, and the job is told. */
+suspend fun Hub.stopHelper(id: String, n: Int) {
+  post<JsonObject>("/api/v1/jobs/cancel", buildJsonObject { put("id", id); put("helper", n) })
+}
+
+/** Waiting for the ChatGPT plan: goes on with the API key now. */
+suspend fun Hub.useKey(id: String) {
+  post<JsonObject>("/api/v1/jobs/key", buildJsonObject { put("id", id) })
+}
+
+/** File [n] it made, as bytes to save. */
+suspend fun Hub.jobFile(id: String, n: Int): ByteArray = bytes("/api/v1/jobs/file?id=${enc(id)}&n=$n")
+
+/** Research as a table, as CSV. */
+suspend fun Hub.jobCsv(id: String): ByteArray = bytes("/api/v1/jobs/csv?id=${enc(id)}")
