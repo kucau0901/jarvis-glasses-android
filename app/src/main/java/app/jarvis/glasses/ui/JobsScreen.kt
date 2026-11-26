@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,6 +50,8 @@ fun JobsScreen(app: JarvisApp, back: () -> Unit, open: String? = null) {
   var specialties by remember { mutableStateOf<List<Named>>(emptyList()) }
   var projects by remember { mutableStateOf<List<Named>>(emptyList()) }
   var tick by remember { mutableStateOf(0) }
+  // Projects and Sites, each a page of Jobs.
+  var page by remember { mutableStateOf("") }
   LaunchedEffect(Unit) {
     val m = runCatching { app.hub.me() }.getOrNull()
     me = m
@@ -62,13 +65,28 @@ fun JobsScreen(app: JarvisApp, back: () -> Unit, open: String? = null) {
     runCatching { app.hub.jobs() }.onSuccess { jobs = it; note = "" }.onFailure { note = it.message ?: "Couldn't read jobs" }
     true
   }
+  when (page) {
+    "projects" -> return ProjectsScreen(app, back = { page = ""; tick++ })
+    "sites" -> return SitesScreen(app, back = { page = "" })
+    "memory" -> return MemoryScreen(app, back = { page = ""; tick++ })
+  }
   val o = opened
   if (o != null) {
-    JobPage(app, o, back = { opened = null; tick++ }, again = { again = it; opened = null })
+    JobPage(app, o, back = { opened = null; tick++ }, again = { again = it; opened = null }, me = me, projects = projects)
     return
   }
   LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     item { PageHead("Jobs", back) }
+    if (me?.can("memory.read") == true || me?.workshop == true) {
+      item {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          if (me?.can("memory.read") == true) SafePill("Projects") { page = "projects" }
+          // Specialties, which jobs follow, and Which is true now?, of what is saved.
+          if (me?.can("memory.read") == true) SafePill("Memory") { page = "memory" }
+          if (me?.workshop == true) SafePill("Sites") { page = "sites" }
+        }
+      }
+    }
     item { JobForm(app, me, specialties, projects, again) { again = null; tick++ } }
     if (note.isNotEmpty()) item { Text(note, style = MaterialTheme.typography.bodySmall, color = c.danger) }
     items(jobs, key = { it.id }) { j ->

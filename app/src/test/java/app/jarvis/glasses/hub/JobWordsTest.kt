@@ -35,6 +35,8 @@ class JobWordsTest {
     )
     assertEquals("The ChatGPT plan is at its limit. This goes on by itself at about Thu 15:20.", JobWords.waiting(Job("j1", waiting = Waiting("plan", at)), utc, Locale.UK))
     assertNull(JobWords.waiting(Job("j1"), utc, Locale.UK))
+    // A day that may be long ago is said in full.
+    assertEquals("26 Nov 2026", JobWords.daySaid(at, utc, Locale.UK))
   }
 
   @Test

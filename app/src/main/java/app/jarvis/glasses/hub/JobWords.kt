@@ -36,6 +36,10 @@ object JobWords {
   fun whenSaid(at: Long, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String =
       DateTimeFormatter.ofPattern("EEE HH:mm", locale).format(Instant.ofEpochMilli(at).atZone(zone))
 
+  /** "26 Nov 2026": a day that may be long ago (a fact saved, a version before, a site published). */
+  fun daySaid(at: Long, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String =
+      DateTimeFormatter.ofPattern("d MMM yyyy", locale).format(Instant.ofEpochMilli(at).atZone(zone))
+
   /** What may move it to the API key now: its tokens so far there, in words, for asking first. */
   fun keyCost(soFar: Double?): String = soFar?.let { "About ${if (it < 0.01) "under 1¢" else "$" + "%.2f".format(Locale.US, it)} so far. Sure?" } ?: "It costs money. Sure?"
 
