@@ -94,11 +94,13 @@ private enum class HomePage { MAIN, JOBS, ROUTINES }
 
 /** Home: the glasses' display, quick tiles, and the Home panels made in Jarvis. */
 @Composable
-fun HomeScreen(app: JarvisApp, hooks: Hooks) {
+fun HomeScreen(app: JarvisApp, hooks: Hooks, openJob: String? = null, openCount: Int = 0) {
   var page by remember { mutableStateOf(HomePage.MAIN) }
+  // A job to open (a pill in Chat, a question's notification): Jobs, at it.
+  LaunchedEffect(openCount) { if (openJob != null) page = HomePage.JOBS }
   when (page) {
     HomePage.MAIN -> HomeMain(app, hooks, open = { page = it })
-    HomePage.JOBS -> JobsScreen(app, back = { page = HomePage.MAIN })
+    HomePage.JOBS -> JobsScreen(app, back = { page = HomePage.MAIN }, open = openJob)
     HomePage.ROUTINES -> RoutinesScreen(app, back = { page = HomePage.MAIN })
   }
 }
@@ -353,6 +355,8 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
           }
         }
       }
+      // What jobs ask and what waits for an OK, above everything else, as the web's Now.
+      if (app.prefs.token.startsWith("jss1_")) item(key = "now", span = { GridItemSpan(maxLineSpan) }) { NowStrip(app) }
       item(key = "jobs") { QuickTile(Glyphs.Jobs, "Jobs") { open(HomePage.JOBS) } }
       item(key = "routines") { QuickTile(Glyphs.Clock, "Routines") { open(HomePage.ROUTINES) } }
       item(key = "live") {

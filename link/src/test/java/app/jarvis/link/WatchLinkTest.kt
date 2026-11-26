@@ -110,4 +110,11 @@ class WatchLinkTest {
     val new = WatchLink.reply(WatchLink.REPLY, WatchLink.encode(Reply.Approvals("f2", listOf(Approval("p2", "Publish the site", verb = "On your phone", phone = true))))) as Reply.Approvals
     assertEquals(true, new.open.single().phone)
   }
+
+  @Test
+  fun anOlderPhonesGlanceHasNoQuestions() {
+    val old = WatchLink.reply(WatchLink.REPLY, """{"type":"glance","id":"g1","approvals":2,"jobs":1}""".toByteArray()) as Reply.Glance
+    assertEquals(0, old.asks)
+    assertEquals(3, (WatchLink.reply(WatchLink.REPLY, WatchLink.encode(Reply.Glance("g2", 0, 0, 3))) as Reply.Glance).asks)
+  }
 }

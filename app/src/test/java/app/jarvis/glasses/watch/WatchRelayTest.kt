@@ -171,7 +171,7 @@ class WatchRelayTest {
 
     override suspend fun approvals() = check().let { listOf(Approval("p1", "Send it")) }
 
-    override suspend fun glance() = check().let { 2 to 1 }
+    override suspend fun glance() = check().let { Glance(2, 1) }
 
     override suspend fun act(panel: String, key: String, action: String, value: String?, member: String?) = check().let { acted += "$panel/$key${member?.let { "/$it" }.orEmpty()} $action"; "Done" }
 

@@ -26,14 +26,17 @@ interface Wrist {
 
   suspend fun approvals(): List<Approval>
 
-  /** Approvals waiting, and jobs at work (not those waiting for their person). */
-  suspend fun glance(): Pair<Int, Int>
+  /** Approvals waiting, jobs at work (not those waiting for their person), and what jobs ask, for the watch face. */
+  suspend fun glance(): Glance
 
   /** What Jarvis said of it. [member]: one of a room's things, by its key. */
   suspend fun act(panel: String, key: String, action: String, value: String?, member: String? = null): String
 
   suspend fun approve(proposal: String, yes: Boolean)
 }
+
+/** The watch face's counts: approvals waiting, jobs at work, questions from jobs (answered on the phone). */
+data class Glance(val approvals: Int, val jobs: Int, val asks: Int = 0)
 
 /** The wrist from the phone's [Hub], signed in as the person (a device token is refused: [Hub.NotAPerson]). */
 class HubWrist(private val hub: Hub) : Wrist {
@@ -51,10 +54,11 @@ class HubWrist(private val hub: Hub) : Wrist {
 
   override suspend fun approvals(): List<Approval> = hub.proposals().open.filter { it.state == "pending" }.map(::approvalOf)
 
-  override suspend fun glance(): Pair<Int, Int> = coroutineScope {
-    val approvals = async { hub.proposals().open.count { it.state == "pending" } }
+  override suspend fun glance(): Glance = coroutineScope {
+    val waiting = async { hub.proposals() }
     val jobs = async { hub.jobs().count { it.status == "running" && it.waiting?.forWhat != "you" } }
-    approvals.await() to jobs.await()
+    val w = waiting.await()
+    Glance(w.open.count { it.state == "pending" }, jobs.await(), w.asking.size)
   }
 
   override suspend fun act(panel: String, key: String, action: String, value: String?, member: String?): String = hub.act(panel, key, action, member = member, value = value)

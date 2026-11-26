@@ -174,4 +174,15 @@ class EventsTest {
     assertEquals(listOf(Turn.jarvis("Leave in ten."), Turn.user("the match tonight\nand tomorrow?"), Turn.jarvis("Rain."), Turn.user("thanks")), Turn.merged(turns))
     assertEquals(emptyList<Turn>(), Turn.merged(emptyList()))
   }
+
+  @Test
+  fun aResultsFilesAndProposalsComeWithIt() {
+    val a = Alert.fromMessage(
+        SseParser.json.parseToJsonElement(
+            """{"type":"alert","alert":{"id":"al3","title":"Done: Expenses","text":"By month.","source":"job","job":"j1","made":[{"n":1,"name":"expenses.xlsx","size":20480}],"proposals":[{"id":"p1","says":"Send it"},"p2"]}}""",
+        ) as JsonObject,
+    )!!
+    assertEquals(listOf(app.jarvis.glasses.hub.JobFile(1, "expenses.xlsx", 20480)), a.made)
+    assertEquals(listOf("p1", "p2"), a.proposals)
+  }
 }

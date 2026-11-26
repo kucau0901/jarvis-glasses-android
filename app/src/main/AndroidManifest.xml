@@ -58,6 +58,11 @@
             android:name=".alerts.ReplyReceiver"
             android:exported="false" />
 
+        <!-- A background job's question answered from its notification: straight to the job. -->
+        <receiver
+            android:name=".alerts.AnswerReceiver"
+            android:exported="false" />
+
         <!-- A saved place crossed: Android's geofencing tells this, which tells Jarvis (app/location). -->
         <receiver
             android:name=".location.GeofenceReceiver"

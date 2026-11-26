@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity(), Hooks {
   /** Where a notification asked to open: Chat, or the Inbox at a conversation. Counted, so the same place opens again. */
   private var opening by mutableStateOf(Opening(null, null, 0))
 
-  data class Opening(val tab: Tab?, val convo: String?, val n: Int)
+  data class Opening(val tab: Tab?, val convo: String?, val n: Int, val job: String? = null)
 
   override var theme: String
     get() = chosenTheme
@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity(), Hooks {
             this,
             open = opening.tab,
             openCount = opening.n,
-            home = { HomeScreen(jarvis, this) },
+            home = { HomeScreen(jarvis, this, openJob = opening.job, openCount = opening.n) },
             chat = { ChatScreen(jarvis, this) },
             inbox = { InboxScreen(jarvis, opening.convo, onOpened = { opening = opening.copy(convo = null) }) },
             settings = { SettingsScreen(jarvis, this) },
@@ -138,9 +138,10 @@ class MainActivity : ComponentActivity(), Hooks {
         when (intent.getStringExtra(OPEN)) {
           OPEN_CHAT -> Tab.CHAT
           OPEN_INBOX -> Tab.INBOX
+          OPEN_JOB -> Tab.HOME
           else -> return
         }
-    opening = Opening(tab, intent.getStringExtra(OPEN_CONVO), opening.n + 1)
+    opening = Opening(tab, intent.getStringExtra(OPEN_CONVO), opening.n + 1, job = intent.getStringExtra(OPEN_JOB_ID))
   }
 
   override fun onResume() {
@@ -229,6 +230,10 @@ class MainActivity : ComponentActivity(), Hooks {
 
   override fun talk() = JarvisService.start(this, JarvisService.ACTION_TALK)
 
+  override fun openJob(id: String) {
+    opening = Opening(Tab.HOME, null, opening.n + 1, job = id)
+  }
+
   override fun pickPhoto(onPicked: (ByteArray) -> Unit) {
     onPhoto = onPicked
     photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -239,6 +244,9 @@ class MainActivity : ComponentActivity(), Hooks {
     const val OPEN = "open"
     const val OPEN_CHAT = "chat"
     const val OPEN_INBOX = "inbox"
+    /** Jobs, at the job named by [OPEN_JOB_ID]: a question's notification. */
+    const val OPEN_JOB = "job"
+    const val OPEN_JOB_ID = "jobId"
     const val OPEN_CONVO = "convo"
 
     private val PHONE_PERMISSIONS =

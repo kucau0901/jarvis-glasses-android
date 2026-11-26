@@ -209,8 +209,9 @@ fun ChatScreen(app: JarvisApp, hooks: Hooks) {
               }
             }
         SaidRow(app.hub, s, kinds[s.id], read = s.id == read, shown[s.id].orEmpty(), person, looked = looked[s.id], onLook = onLook)
+        SaidExtras(app, s, person)
       }
-      items(jobs, key = { it.id }) { j -> JobStarted(j) }
+      items(jobs, key = { it.id }) { j -> JobPill(app, j, gone = said.any { it.job?.id == j.id }, open = hooks::openJob) }
       items(drafts, key = { it.id }) { d ->
         // The app's, not the screen's, as a question is: leaving Chat mid-send would hang up on it.
         DraftCard(d, onSend = { app.scope.launch { note = runCatching { app.client.sendDraft(d.id) }.fold({ "Sent." }, { it.message ?: "Not sent" }); drafts.remove(d) } }, onDrop = { drafts.remove(d) })
@@ -280,19 +281,6 @@ private fun SaidRow(hub: Hub, s: Said, kind: String?, read: Boolean, shown: List
   }
   s.page?.let { PageCard(hub, it) }
   shown.forEachIndexed { i, it -> ShownCard(hub, it, "${s.id}:$i", person) }
-}
-
-/** A background job this question started, as the web app shows one: its result comes later, in Jobs. */
-@Composable
-private fun JobStarted(j: Named) {
-  val h = Hark.colors
-  Row(
-      Modifier.clip(CircleShape).background(h.solid).padding(horizontal = 16.dp, vertical = 10.dp),
-      verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Icon(Glyphs.Jobs, contentDescription = null, tint = h.onSolid, modifier = Modifier.size(16.dp))
-    Text("  Job started: ${j.name}", style = MaterialTheme.typography.bodyMedium, color = h.onSolid, maxLines = 1, overflow = TextOverflow.Ellipsis)
-  }
 }
 
 /** What typed chat says when a research job met the month's cap, or research is off (lib/jobs.ts isResearchCap). */

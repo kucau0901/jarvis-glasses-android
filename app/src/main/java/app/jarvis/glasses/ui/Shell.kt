@@ -54,6 +54,9 @@ interface Hooks {
 
   fun talk()
 
+  /** Opens background job [id] in Jobs: a pill in Chat, a question's notification. */
+  fun openJob(id: String)
+
   /** Lets the person pick a photo; [onPicked] gets it as a JPEG of about 1024 px. */
   fun pickPhoto(onPicked: (ByteArray) -> Unit)
 

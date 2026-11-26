@@ -95,6 +95,7 @@ open class MainActivity : ComponentActivity() {
               },
               approvals = counts.approvals,
               onTalk = ::talk,
+              asks = counts.asks,
               onSpeak = {
                 app.prefs.speak = it
                 speak = it
