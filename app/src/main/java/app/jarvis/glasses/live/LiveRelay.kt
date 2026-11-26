@@ -48,6 +48,8 @@ class LiveRelay(
     private val onSaid: (Turn) -> Unit = {},
     private val onShown: (Shown) -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis,
+    /** A job's question said into the session, answered with one of its choices: straight to the job ([asked]). */
+    private val answerJob: app.jarvis.glasses.conversation.AnswerJob? = null,
 ) {
   private val _turns = MutableStateFlow<List<Turn>>(emptyList())
   val turns: StateFlow<List<Turn>> = _turns
@@ -109,8 +111,9 @@ class LiveRelay(
   private var handed = false
   // The session is over ([finish]): a delegation still at work can no longer be said.
   private var ended = false
-  // A job's question said in it ([asked]): its choices.
+  // A job's question said in it ([asked]): its choices, and which question it is, until it is answered.
   private var choices = emptyList<String>()
+  private var ask: app.jarvis.glasses.hub.AskRef? = null
 
   /**
    * The session has ended: its last turns are finished too, and what nobody answered is dropped. A
@@ -133,10 +136,14 @@ class LiveRelay(
     handed = true
   }
 
-  /** The choices of a job's question just said into the session: one said back is the answer, never goodbye ("no thanks"). */
+  /**
+   * A job's question ([ask]) just said into the session, with its [choices]: one said back is the
+   * answer, never goodbye ("no thanks"), and, when Jarvis is asked about it, goes to the job as it is.
+   */
   @Synchronized
-  fun asked(choices: List<String>) {
+  fun asked(choices: List<String>, ask: app.jarvis.glasses.hub.AskRef? = null) {
     this.choices = choices
+    this.ask = ask
   }
 
   /**
@@ -171,7 +178,12 @@ class LiveRelay(
         // One at a time: a second request would race the first and both would speak.
         work?.cancel()
         val transcript = seed + said.filter { it.kept }.map { it.turn }
-        work = scope.launch { run(id, latest, transcript) }
+        // What the wearer said is one of the job's choices, or going on without: the job is told, with no model asked.
+        val q = ask
+        val words = (from..latest).mapNotNull { said.getOrNull(it)?.takeIf { s -> s.role == "user" }?.text }.joinToString(" ")
+        val pick = if (q != null) Phrases.choiceOf(words, choices) else null
+        val straight = q != null && answerJob != null && (pick != null || Phrases.isSkip(words))
+        work = scope.launch { if (!(straight && tellJob(id, q!!, pick))) run(id, latest, transcript) }
       }
     }
   }
@@ -297,6 +309,20 @@ class LiveRelay(
       if (forJarvis) lastJarvis = now()
       done(id)
     }
+  }
+
+  /** Delegation [id] answered by telling the job [q] [pick] (null: go on without): said so, and done. False when it could not be told. */
+  private suspend fun tellJob(id: String, q: app.jarvis.glasses.hub.AskRef, pick: String?): Boolean {
+    if (answerJob?.answer(q.job, q.id, pick) != true) return false
+    synchronized(this) { ask = null }
+    try {
+      speak(id, if (pick == null) "Tell the user their background job was told to go on without them." else "Tell the user their background job was told: $pick.")
+    } finally {
+      lastActivity = now()
+      lastJarvis = now()
+      done(id)
+    }
+    return true
   }
 
   /** [text] for the model to say for delegation [id]: handed words, so they answer nothing heard meanwhile. */

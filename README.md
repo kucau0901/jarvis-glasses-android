@@ -16,6 +16,11 @@ features on the phone.
   joins the same notification.
 - **"What am I looking at?"** (or "apa ni?") as your opening question takes a photo with the
   glasses' camera and sends it with the question.
+- **A background job's question** is said with its choices ("Say one of those, or go on
+  without me"). Say a choice, or "go on without me" ("teruskan"), and the job is told at once,
+  with no model asked; "Told it." Anything else goes to Jarvis, which passes it on. "No thanks"
+  is an answer then, not a goodbye, in Talk and in Live voice. A result says when its files are
+  in Jobs on your phone; an approval is only ever given by a tap there.
 - **Live voice** (a switch): GPT-Live through Jarvis for a natural back-and-forth you can talk
   over. Needs Jarvis's `OPENAI_API_KEY`, costs about $0.05 a minute, and hangs up after a quiet
   time you choose (10 s by default), 20 s after Jarvis last spoke, or when you say goodbye.
@@ -163,9 +168,13 @@ or signing out takes the fences away. It needs Google Play services.
   to follow up; untouched, it goes after a minute. Another alert arriving meanwhile joins the chat
   rather than coming as a notification. Home shows the G2, and its battery from the last time an
   alert was up.
-  **"Hey Even, open Jarvis"** shows Jarvis's own screen on the G2: three tiles under the glasses'
+  **"Hey Even, open Jarvis"** shows Jarvis's own screen on the G2: four tiles under the glasses'
   battery and the time, the chosen one framed bright. Swipe to choose, tap to open **Chat** (tap
-  again to talk), **Alerts** (counting any that arrive meanwhile; tap to reply) or **Close**.
+  again to talk), **Alerts** (counting any that arrive meanwhile, and what waits for you; tap to
+  reply), **Jobs** (each at work, with what it is doing; tap one for its list, and tap twice to
+  stop it; an approval that needs no reading is given with two taps, any other says to read it
+  on your phone) or **Close**. A job's question shows as its own page: swipe to a choice, *Say
+  it*, or *Go on without me*, and tap.
   Leaving the chat goes back to it. It is only frames and the font's symbols, drawn by the glasses
   themselves, so a swipe shows at once.
   The microphone never opens by itself: the G2 can't say whether it is being worn. The Even app

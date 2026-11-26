@@ -56,6 +56,11 @@ interface Brain {
   suspend fun speech(text: String): ByteArray?
 }
 
+/** A job's question answered: [text] its words (a choice), null to go on without; whether the job was told. */
+fun interface AnswerJob {
+  suspend fun answer(job: String, id: String, text: String?): Boolean
+}
+
 /** The conversation Talk shares with Chat and Live ([app.jarvis.glasses.chat.ChatLog]). */
 interface Memory {
   /** What a question goes with: the recent part of the conversation. */
@@ -91,6 +96,11 @@ class Conversation(
     private val brain: Brain,
     private val memory: Memory,
     private val followUps: () -> Boolean,
+    /**
+     * A job's question answered straight ([AnswerJob]): with a choice it offered, or going on without
+     * ("go on without me"), to the job itself, with no model asked. Null: always through Jarvis.
+     */
+    private val answerJob: AnswerJob? = null,
 ) {
   /** OPENING while the glasses' microphone and speakers are routed to, which takes up to a few seconds. */
   enum class Status { IDLE, OPENING, LISTENING, THINKING, SPEAKING }
@@ -174,6 +184,18 @@ class Conversation(
           relistened = true
           continue
         }
+        // A job's question just said, answered with one of its choices, or going on without: to the job, as it is.
+        val ask = opened?.ask
+        val pick = if (ask != null) Phrases.choiceOf(heard, choices) else null
+        if (ask != null && answerJob != null && (pick != null || Phrases.isSkip(heard)) && toldJob(ask.job, ask.id, heard, pick)) {
+          if (!followUps()) break
+          wait = followUpWaitMs
+          cap = followUpMaxMs
+          first = false
+          relistened = false
+          followUp = true
+          continue
+        }
         val look = first && Phrases.wantsPhoto(heard)
         val photo = if (look) eyes.photo() else null
         if (photo == null && look) _note.value = "No photo: the glasses camera isn't available"
@@ -196,6 +218,23 @@ class Conversation(
       mouth.close()
       _status.value = Status.IDLE
     }
+  }
+
+  /**
+   * The job's question answered with [pick], or gone on without (null), straight to the job; "Told
+   * it." said, and both kept with the question in Chat. False when the job could not be told: then it
+   * is asked of Jarvis as anything else is.
+   */
+  private suspend fun toldJob(job: String, id: String, heard: String, pick: String?): Boolean {
+    _status.value = Status.THINKING
+    if (answerJob?.answer(job, id, pick) != true) return false
+    val said = if (pick == null) "Told it to go on without you." else "Told it."
+    _status.value = Status.SPEAKING
+    val audio = runCatching { brain.speech(said) }.getOrNull()
+    if (audio != null) mouth.play(audio) else mouth.say(said)
+    memory.keep(listOf(Turn.user(heard), Turn.jarvis(said)), opened)
+    opened = null
+    return true
   }
 
   /**

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import app.jarvis.glasses.jarvis
+import app.jarvis.glasses.hub.AskRef
 import app.jarvis.glasses.jarvis.Alert
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -15,6 +16,10 @@ import kotlinx.coroutines.launch
  * An alert shown on G2 glasses as if Jarvis had sent it, to try the display and a reply without
  * waiting for a real one (the reply is a real question to Jarvis):
  * `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --es text "'The gate is open.'"`
+ *
+ * A background job's question, its choices "|" apart, on its own page (answering it asks the real
+ * Jarvis to tell a job that does not exist, which it refuses, and the page says so):
+ * `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --es ask "'Under RM800 only?'" --es choices "'Yes|Up to RM1,000'"`
  *
  * Jarvis's own screen on them, as "open Jarvis" said to Even AI opens it:
  * `adb shell am broadcast -n app.jarvis.glasses/.g2.G2AlertReceiver --ez menu true`
@@ -52,8 +57,14 @@ class G2AlertReceiver : BroadcastReceiver() {
       }
       return
     }
-    val text = intent.getStringExtra("text") ?: "This is a test alert."
-    val alert = Alert("test-${System.currentTimeMillis()}", intent.getStringExtra("title") ?: "Jarvis", text, speak = true, urgent = false)
+    val question = intent.getStringExtra("ask")
+    val choices = intent.getStringExtra("choices")?.split("|")?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+    val text = question?.let { q -> q + if (choices.isNotEmpty()) "\n\n" + choices.joinToString("\n") { "- $it" } else "" } ?: intent.getStringExtra("text") ?: "This is a test alert."
+    val alert =
+        Alert(
+            "test-${System.currentTimeMillis()}", intent.getStringExtra("title") ?: if (question != null) "A question: Test job" else "Jarvis", text, speak = true, urgent = false,
+            source = if (question != null) "job" else "", ask = question?.let { AskRef("jtest", "q1") },
+        )
     val shown = app.g2?.show(alert) { Log.i("G2", "test alert not shown: the G2 couldn't be signed in to") } == true
     Log.i("G2", "test alert ${if (shown) "shown" else "not shown: no G2 with the phone, or one already showing"}")
   }

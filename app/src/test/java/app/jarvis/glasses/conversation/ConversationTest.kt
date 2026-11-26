@@ -480,6 +480,11 @@ class ConversationTest {
     assertFalse(Phrases.isStop("No thanks.", listOf("Yes", "No thanks")))
     assertTrue(Phrases.isStop("No thanks.", listOf("Yes", "Up to RM1,000")))
     assertFalse(Phrases.isAck("OK", listOf("OK", "Wait")))
+    assertEquals("No thanks", Phrases.choiceOf("no thanks.", listOf("Yes", "No thanks")))
+    assertNull(Phrases.choiceOf("maybe", listOf("Yes", "No thanks")))
+    assertTrue(Phrases.isSkip("Go on without me."))
+    assertTrue(Phrases.isSkip("teruskan"))
+    assertFalse(Phrases.isSkip("go on without me and also check the weather"))
     assertTrue(Phrases.isAck("Ага."))
     assertFalse(Phrases.isAck("okay, and tomorrow?"))
     assertTrue(Phrases.isLaunchPhrase("Hey Meta, open the Jarvis app"))
@@ -496,5 +501,37 @@ class ConversationTest {
     advanceUntilIdle()
     // The choice is sent; the "thanks" after it still ends the conversation.
     assertEquals(listOf("no thanks"), brain.asked.map { it.first })
+  }
+
+  @Test
+  fun aChoiceSaidToAJobsQuestionIsToldToTheJobWithNoModelAsked() = runTest {
+    val brain = FakeBrain()
+    val mouth = FakeMouth()
+    val memory = FakeMemory()
+    val told = mutableListOf<Triple<String, String, String?>>()
+    val answer = AnswerJob { job, id, text -> told += Triple(job, id, text); true }
+    val alert = Alert("al1", "A question: Dashcams", "Any other brand?\n\n- No thanks\n- Show me Xiaomi", speak = true, urgent = false, source = "job", ask = AskRef("j1", "q1"))
+    Conversation(this, FakeEars("no thanks", "thanks"), mouth, { null }, brain, memory, followUps = { true }, answerJob = answer).start(alert)
+    advanceUntilIdle()
+    assertEquals(listOf(Triple("j1", "q1", "No thanks")), told)
+    assertTrue(brain.asked.isEmpty())
+    assertTrue("tts:Told it." in mouth.played)
+    assertEquals(listOf(Turn.user("no thanks"), Turn.jarvis("Told it.")), memory.kept.single().first)
+  }
+
+  @Test
+  fun goingOnWithoutIsToldAndAJobThatCannotBeToldIsAskedOfJarvis() = runTest {
+    val skipped = mutableListOf<String?>()
+    val alert = Alert("al1", "A question: Dashcams", "Any other brand?", speak = true, urgent = false, source = "job", ask = AskRef("j1", "q1"))
+    val brain = FakeBrain()
+    Conversation(this, FakeEars("go on without me"), FakeMouth(), { null }, brain, FakeMemory(), followUps = { false }, answerJob = { _, _, t -> skipped += t; true }).start(alert)
+    advanceUntilIdle()
+    assertEquals(listOf<String?>(null), skipped)
+    assertTrue(brain.asked.isEmpty())
+    // Refused (answered elsewhere, its job over): Jarvis is asked, as anything else is.
+    val brain2 = FakeBrain()
+    Conversation(this, FakeEars("go on without me"), FakeMouth(), { null }, brain2, FakeMemory(), followUps = { false }, answerJob = { _, _, _ -> false }).start(alert)
+    advanceUntilIdle()
+    assertEquals(listOf("go on without me"), brain2.asked.map { it.first })
   }
 }

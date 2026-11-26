@@ -1,5 +1,7 @@
 package app.jarvis.glasses
 
+import app.jarvis.glasses.hub.skipQuestion
+import app.jarvis.glasses.hub.answerJob
 import android.app.Application
 import android.content.Context
 import android.os.Build
@@ -82,8 +84,8 @@ class JarvisApp : Application() {
     client = JarvisClient({ prefs.url }, { prefs.token }, { prefs.gatewayHeaders() }, { prefs.origin })
     hub = Hub(client)
     chat = ChatLog(scope, hub::conversation, hub::keep, hub::clearConversation, person = { prefs.token.startsWith("jss1_") })
-    conversation = Conversation(scope, audio, audio, link, client, chat, followUps = { prefs.followUps })
-    live = LiveVoice(this, client, audio, scope, quietMs = { prefs.liveQuietSeconds * 1000L })
+    conversation = Conversation(scope, audio, audio, link, client, chat, followUps = { prefs.followUps }, answerJob = ::answerJob)
+    live = LiveVoice(this, client, audio, scope, quietMs = { prefs.liveQuietSeconds * 1000L }, answerJob = ::answerJob)
     // A bot's exchange with Jarvis, kept in the person's conversation: Chat reads it again, signed in as them.
     alerts = AlertSocket(client, scope, ::onAlert, ::openG2, onSaid = { scope.launch { runCatching { chat.refresh() } } })
     admin = Admin(client)
@@ -111,7 +113,7 @@ class JarvisApp : Application() {
         )
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       val g2l = G2Link(this).also { g2Link = it }
-      g2 = G2Alerts(scope, g2l, client, chat, followUps = { prefs.followUps }, said = chat.said, refresh = chat::refresh)
+      g2 = G2Alerts(scope, g2l, client, chat, followUps = { prefs.followUps }, said = chat.said, refresh = chat::refresh, hub = hub, answerJob = ::answerJob, asks = asks)
     }
     glasses = g2Link?.let { g -> combine(link.glasses, g.glasses) { a, b -> a + b }.stateIn(scope, SharingStarted.Eagerly, link.glasses.value) } ?: link.glasses
     // In front of someone: the glasses say an alert, or a notification shows it. Jarvis waits for
@@ -178,6 +180,15 @@ class JarvisApp : Application() {
     val shown = prefs.g2 && g2?.openMenu() == true
     Log.i(TAG, "open on the G2: ${if (shown) "shown" else "not shown: no G2 with the phone, one busy, or switched off"}")
   }
+
+  /**
+   * A job's question answered by voice or on the G2 with one of its choices, or gone on without (null
+   * [text]): to the job as it is, with no model asked; settled for every card and notification of it.
+   */
+  internal suspend fun answerJob(job: String, id: String, text: String?): Boolean =
+      runCatching { if (text == null) hub.skipQuestion(job, id) else hub.answerJob(job, id, text) }
+          .onSuccess { asks.settle(job, id, if (text == null) "You chose to go on without an answer." else "You answered: $text") }
+          .isSuccess
 
   /** Tells Jarvis whether this app can put an alert in front of someone right now. */
   fun refreshPresence() = alerts.setVisible(audio.connected.value || notifier.canShow())

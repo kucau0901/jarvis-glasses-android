@@ -471,4 +471,33 @@ class LiveRelayTest {
     assertEquals("Front door: It is unlocked.", o["content"]!!.jsonPrimitive.content)
     assertEquals(kotlinx.serialization.json.JsonNull, o["delegation_id"])
   }
+
+  @Test
+  fun aChoiceSaidInLiveIsToldToTheJobWithNoModelAsked() = runTest {
+    val asked = mutableListOf<Pair<String, List<Turn>>>()
+    val told = mutableListOf<String?>()
+    val sent = Sent()
+    val r =
+        LiveRelay(
+            this,
+            delegate = { id, transcript, _ -> asked += id to transcript },
+            send = { sent.all += obj(it) },
+            now = { testScheduler.currentTime },
+            answerJob = { _, _, text -> told += text; true },
+        )
+    r.asked(listOf("No thanks", "Show me Xiaomi"), app.jarvis.glasses.hub.AskRef("j1", "q1"))
+    r.onMessage(user("show me xiaomi"))
+    r.onMessage(delegation("d1"))
+    advanceUntilIdle()
+    assertEquals(listOf<String?>("Show me Xiaomi"), told)
+    assertTrue(asked.isEmpty())
+    assertTrue(sent.of("session.commentary.append").single().contains("told: Show me Xiaomi"))
+    // Answered once: the same words again are Jarvis's to answer, not the job's twice.
+    r.onMessage(jarvis("Done."))
+    r.onMessage(user("show me xiaomi"))
+    r.onMessage(delegation("d2"))
+    advanceUntilIdle()
+    assertEquals("d2", asked.single().first)
+    assertEquals(1, told.size)
+  }
 }

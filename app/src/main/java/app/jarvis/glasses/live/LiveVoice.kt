@@ -58,6 +58,8 @@ class LiveVoice(
     private val scope: CoroutineScope,
     /** How long a quiet session stays open: it bills by the minute. */
     private val quietMs: () -> Long = { QUIET_MS },
+    /** A job's question said into a session, answered with one of its choices: straight to the job. */
+    private val answerJob: app.jarvis.glasses.conversation.AnswerJob? = null,
 ) {
   enum class State { OFF, CONNECTING, LIVE }
 
@@ -115,7 +117,7 @@ class LiveVoice(
   fun tell(alert: Alert): Boolean {
     val c = channel?.takeIf { it.state() == DataChannel.State.OPEN } ?: return false
     val sent = c.send(DataChannel.Buffer(ByteBuffer.wrap(LiveRelay.say(alert.said).toByteArray()), false))
-    if (sent) openRelay?.let { it.telling(); it.asked(alert.choices) }
+    if (sent) openRelay?.let { it.telling(); it.asked(alert.choices, alert.ask) }
     return sent
   }
 
@@ -162,9 +164,9 @@ class LiveVoice(
       val r = LiveRelay(scope, client::delegate, send = { text ->
         // Its work can outlive the session, and a closed channel takes nothing.
         runCatching { channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray()), false)) }
-      }, onSaid = onSaid, onShown = onShown)
+      }, onSaid = onSaid, onShown = onShown, answerJob = answerJob)
       r.seed(history)
-      opening?.let { r.asked(it.choices) }
+      opening?.let { r.asked(it.choices, it.ask) }
       relay = r
       first = null
       channel.registerObserver(
