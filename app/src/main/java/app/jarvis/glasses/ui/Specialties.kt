@@ -162,7 +162,7 @@ fun WayPage(hub: Hub, w: Way, mayFiles: Boolean, changed: () -> Unit) {
       w.why?.takeIf { it.isNotBlank() }?.let { Text("Why: $it", style = MaterialTheme.typography.bodySmall, color = c.dim) }
       for (f in whole?.files ?: w.files) Text("${f.name} (${JobWords.sizeSaid(f.size)})", style = MaterialTheme.typography.bodySmall, color = c.dim)
       whole?.before?.forEach { b ->
-        Text("Until ${JobWords.whenSaid(b.at)}: ${b.name}", style = MaterialTheme.typography.labelLarge)
+        Text("Until ${JobWords.daySaid(b.at)}: ${b.name}", style = MaterialTheme.typography.labelLarge)
         b.steps.forEachIndexed { i, s -> Text("${i + 1}. $s", style = MaterialTheme.typography.bodySmall, color = c.dim) }
         OutlinedButton(onClick = { scope.launch { runCatching { hub.putBackWay(w.id, b.at) }.onSuccess { note = "Put back."; changed() }.onFailure { note = it.message ?: "Not put back" } } }) { Text("Put this back") }
       }

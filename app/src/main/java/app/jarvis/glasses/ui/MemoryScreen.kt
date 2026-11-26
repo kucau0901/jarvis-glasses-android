@@ -161,5 +161,5 @@ private fun Said(f: Fact, saved: String, family: Boolean) {
   val c = Even.colors
   Text(f.text, style = MaterialTheme.typography.bodyMedium)
   f.address?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.dim) }
-  Text("$saved ${JobWords.whenSaid(f.updatedAt)}" + (if (f.createdAt != f.updatedAt) ", first saved ${JobWords.whenSaid(f.createdAt)}" else "") + if (family) " · the family's" else "", style = MaterialTheme.typography.labelSmall, color = c.dim)
+  Text("$saved ${JobWords.daySaid(f.updatedAt)}" + (if (f.createdAt != f.updatedAt) ", first saved ${JobWords.daySaid(f.createdAt)}" else "") + if (family) " · the family's" else "", style = MaterialTheme.typography.labelSmall, color = c.dim)
 }

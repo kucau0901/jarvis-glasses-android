@@ -141,7 +141,7 @@ fun SitesScreen(app: JarvisApp, back: () -> Unit) {
       Tile(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
           Text(s.name + if (s.down) " (taken down)" else "", style = MaterialTheme.typography.titleMedium)
-          Text("${s.files} files · ${JobWords.sizeSaid(s.bytes)} · ${JobWords.whenSaid(s.at)}", style = MaterialTheme.typography.bodySmall, color = c.dim)
+          Text("${s.files} files · ${JobWords.sizeSaid(s.bytes)} · ${JobWords.daySaid(s.at)}", style = MaterialTheme.typography.bodySmall, color = c.dim)
           if (at != null && !s.down) Text(at, style = MaterialTheme.typography.bodySmall, color = c.tintOpen, modifier = Modifier.clickable { context.view(at) })
           Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (s.before != null) Confirm("Put back", "Put the version before back?") { act("Put back.") { app.hub.siteOp(s.name, "back") } }

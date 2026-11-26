@@ -68,6 +68,7 @@ fun JobsScreen(app: JarvisApp, back: () -> Unit, open: String? = null) {
   when (page) {
     "projects" -> return ProjectsScreen(app, back = { page = ""; tick++ })
     "sites" -> return SitesScreen(app, back = { page = "" })
+    "memory" -> return MemoryScreen(app, back = { page = ""; tick++ })
   }
   val o = opened
   if (o != null) {
@@ -80,6 +81,8 @@ fun JobsScreen(app: JarvisApp, back: () -> Unit, open: String? = null) {
       item {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
           if (me?.can("memory.read") == true) SafePill("Projects") { page = "projects" }
+          // Specialties, which jobs follow, and Which is true now?, of what is saved.
+          if (me?.can("memory.read") == true) SafePill("Memory") { page = "memory" }
           if (me?.workshop == true) SafePill("Sites") { page = "sites" }
         }
       }
