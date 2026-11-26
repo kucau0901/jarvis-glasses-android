@@ -206,8 +206,13 @@ data class Dial(val name: String, val value: Double, val min: Double, val max: D
   fun actionFor(v: Double): String = action + words(v)
 }
 
-/** Something Jarvis wants an OK for: what it says it will do, why, and the word for doing it. */
-@Serializable data class Approval(val id: String, val says: String, val why: String = "", val verb: String = "Approve", val risk: String = "")
+/**
+ * Something Jarvis wants an OK for: what it says it will do, why, and the word for doing it. [phone]:
+ * it has more to read than the wrist shows (words, files), can't be undone, or is a way of doing
+ * things to keep: approved on the phone only, so the watch offers No alone. A watch app made before
+ * this field reads it as false, and the phone refuses its yes all the same.
+ */
+@Serializable data class Approval(val id: String, val says: String, val why: String = "", val verb: String = "Approve", val risk: String = "", val phone: Boolean = false)
 
 /** What the phone sends back, under the [id] of what the watch sent. */
 @Serializable

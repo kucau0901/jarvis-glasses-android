@@ -240,6 +240,15 @@ class JarvisClientTest {
     assertEquals("true", body["openMic"]!!.jsonPrimitive.content)
   }
 
+  @Test
+  fun aDelegationJoinsTheWearersWordsSaidInTwoGoes() = runBlocking {
+    server.enqueue(MockResponse().setBody("data: {\"type\":\"result\",\"text\":\"Asked.\"}\n\n"))
+    client.delegate("d1", listOf(Turn.jarvis("Leave in ten."), Turn.user("ask Hermes to tidy the photos"), Turn.user("from last week"))) {}
+    val turns = kotlinx.serialization.json.Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject["transcript"]!!.jsonArray
+    assertEquals(2, turns.size)
+    assertEquals("ask Hermes to tidy the photos\nfrom last week", turns[1].jsonObject["text"]!!.jsonPrimitive.content)
+  }
+
   private fun clientOf(req: RecordedRequest) =
       kotlinx.serialization.json.Json.parseToJsonElement(req.body.readUtf8()).jsonObject["client"]!!.jsonPrimitive.content
 

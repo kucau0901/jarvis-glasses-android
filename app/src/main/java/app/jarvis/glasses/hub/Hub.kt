@@ -23,7 +23,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * the routes it names): Home panels, chat history, family messages, approvals, jobs and routines.
  * `/api/hub/…` answers only a person, so with a device token those calls fail with [NotAPerson].
  */
-class Hub(private val client: JarvisClient) {
+class Hub(internal val client: JarvisClient) {
   /** `/api/hub/…` refused a device token: sign in with a code to use it. */
   class NotAPerson : Exception("Sign in with a code to see this")
 
@@ -193,9 +193,9 @@ class Hub(private val client: JarvisClient) {
 
   suspend fun proposals(): Proposals = get("/api/hub/proposals")
 
-  suspend fun answer(id: String, answer: String) {
-    post<JsonObject>("/api/hub/proposals/answer", buildJsonObject { put("id", id); put("answer", answer) })
-  }
+  /** "approve", "decline" or "undo" (Put back): the card as it now stands, or why it was refused, in words. */
+  suspend fun answer(id: String, answer: String): Proposal =
+      post<ProposalReply>("/api/hub/proposals/answer", buildJsonObject { put("id", id); put("answer", answer) }).proposal
 
   /** Not now ("later": no look for three hours) or Less of this ("less"), on what a look around said, by its id. */
   suspend fun lookAnswer(id: String, answer: String) {
@@ -208,7 +208,8 @@ class Hub(private val client: JarvisClient) {
 
   suspend fun job(id: String): Job = get<OneJob>("/api/v1/jobs?id=${enc(id)}").job
 
-  suspend fun startJob(task: String): Job = post<OneJob>("/api/v1/jobs", buildJsonObject { put("task", task) }).job
+  /** [reach]: "web" (searches, and nothing of theirs) or "private" (their own things, no web); Jarvis's default is the second. */
+  suspend fun startJob(task: String, reach: String): Job = post<OneJob>("/api/v1/jobs", buildJsonObject { put("task", task); put("reach", reach) }).job
 
   suspend fun cancelJob(id: String) {
     post<JsonObject>("/api/v1/jobs/cancel", buildJsonObject { put("id", id) })
@@ -282,15 +283,15 @@ class Hub(private val client: JarvisClient) {
 
   // Plumbing
 
-  private suspend inline fun <reified T> get(path: String): T =
+  internal suspend inline fun <reified T> get(path: String): T =
       withContext(Dispatchers.IO) { decode(call(client.request(path).get().build())) }
 
-  private suspend inline fun <reified T> post(path: String, body: JsonObject): T = send("POST", path, body)
+  internal suspend inline fun <reified T> post(path: String, body: JsonObject): T = send("POST", path, body)
 
-  private suspend inline fun <reified T> send(method: String, path: String, body: JsonObject): T =
+  internal suspend inline fun <reified T> send(method: String, path: String, body: JsonObject): T =
       withContext(Dispatchers.IO) { decode(call(client.request(path).method(method, body.toString().toRequestBody(JSON)).build())) }
 
-  private fun call(req: Request): String =
+  internal fun call(req: Request): String =
       client.http.newCall(req).execute().use { res ->
         val text = res.body?.string().orEmpty()
         when {
@@ -304,15 +305,15 @@ class Hub(private val client: JarvisClient) {
         }
       }
 
-  private inline fun <reified T> decode(text: String): T = JSON_IN.decodeFromString(text.ifEmpty { "{}" })
+  internal inline fun <reified T> decode(text: String): T = JSON_IN.decodeFromString(text.ifEmpty { "{}" })
 
-  private fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
+  internal fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
 
-  private fun errorIn(text: String): String? =
+  internal fun errorIn(text: String): String? =
       runCatching { (JSON_IN.parseToJsonElement(text).jsonObject["error"] as? JsonPrimitive)?.contentOrNull }.getOrNull()
 
   companion object {
-    private val JSON = "application/json".toMediaType()
+    internal val JSON = "application/json".toMediaType()
     val JSON_IN = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
 
     /** A map as the web asks for one (HomeChart.ts mapImage), so both share what Jarvis keeps of it. */

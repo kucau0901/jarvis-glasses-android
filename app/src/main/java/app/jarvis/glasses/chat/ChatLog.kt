@@ -122,7 +122,7 @@ class ChatLog(
    */
   fun arrived(alert: Alert) = add(listOf(said(alert, now())))
 
-  private fun said(a: Alert, at: Long) = Said(a.id, at, "assistant", a.text, alert = AlertFrom(a.source, a.title), skill = a.skill, look = a.look)
+  private fun said(a: Alert, at: Long) = Said(a.id, at, "assistant", a.text, alert = AlertFrom(a.source, a.title), skill = a.skill, look = a.look, ask = a.ask)
 
   /** Emptied here and, signed in as a person, on every screen of theirs. */
   suspend fun clear() {
@@ -155,9 +155,12 @@ class ChatLog(
      * named, and a bot's words are quoted as its own ([Said.read]); a page set apart is not words.
      */
     fun transcript(said: List<Said>, shown: Set<String>, now: Long): List<Turn> =
-        said
-            .filter { it.id !in shown && !it.apart && (now - it.at < RECENT_MS || it.at == 0L) }
+        Turn.merged(
+                said
+                    .filter { it.id !in shown && !it.apart && (now - it.at < RECENT_MS || it.at == 0L) }
+                    .map { s -> Turn(s.role, s.read) },
+            )
+            // Counted joined, as the web counts its turns.
             .takeLast(RECENT_TURNS)
-            .map { s -> Turn(s.role, s.read) }
   }
 }

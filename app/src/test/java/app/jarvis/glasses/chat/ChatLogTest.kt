@@ -1,5 +1,6 @@
 package app.jarvis.glasses.chat
 
+import app.jarvis.glasses.hub.AskRef
 import app.jarvis.glasses.hub.AlertFrom
 import app.jarvis.glasses.hub.MadePage
 import app.jarvis.glasses.hub.Named
@@ -25,7 +26,8 @@ class ChatLogTest {
 
   @Test
   fun aQuestionCarriesRecentTurnsOnly() {
-    val history = listOf(Said("old0001", NOW - 4 * 3_600_000L, "user", "old")) + List(25) { Said("n$it" + "aaaa", NOW - 1000, "user", "q$it") }
+    // Questions and answers in turn: two of one role together are one turn (Turn.merged), as the web counts them.
+    val history = listOf(Said("old0001", NOW - 4 * 3_600_000L, "user", "old")) + List(25) { Said("n$it" + "aaaa", NOW - 1000, if (it % 2 == 0) "user" else "assistant", "q$it") }
     val t = ChatLog.transcript(history, emptySet(), NOW)
     assertEquals(20, t.size)
     assertTrue(t.none { it == Turn("user", "old") })
@@ -205,5 +207,16 @@ class ChatLogTest {
 
   private companion object {
     const val NOW = 10 * 3_600_000L
+  }
+
+  @Test
+  fun aJobsQuestionIsToldQuotedAndTwoQuestionsInARowAsOne() = runTest {
+    val log = log(Jarvis())
+    log.arrived(Alert("al00009", "A question: Dashcams", "Under RM800 only?\n\n- Yes", speak = true, urgent = false, source = "job", ask = AskRef("j1", "q1")))
+    advanceUntilIdle()
+    assertEquals(AskRef("j1", "q1"), log.said.value.single().ask)
+    assertTrue(log.recent().single().text.contains("(a background job asks the user, in its own words;"))
+    val two = listOf(Said("u000001", NOW, "user", "the match tonight"), Said("u000002", NOW, "user", "and tomorrow?"))
+    assertEquals(listOf(Turn.user("the match tonight\nand tomorrow?")), ChatLog.transcript(two, emptySet(), NOW))
   }
 }

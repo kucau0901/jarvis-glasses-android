@@ -29,11 +29,12 @@ import kotlinx.serialization.json.put
  * `session.thinking.append`, the answer as `session.commentary.append` for the model to say.
  *
  * The microphone hears everyone nearby, so what it hears is cut into segments at each pause of
- * [SEGMENT_GAP_MS], and only a segment Jarvis answered (by speaking after it, or by delegating
- * for it) counts as said to Jarvis: it alone is kept and sent with a delegation, and the rest is
- * dropped. A delegation's backend may still find nothing in it was for Jarvis (`notForMe`): then
- * the model is told so silently, and that segment, with what Jarvis said about it meanwhile, is
- * dropped too.
+ * [SEGMENT_GAP_MS], and only what Jarvis answered counts as said to Jarvis: the segment it spoke
+ * after, or, delegating, every segment the wearer said since Jarvis last spoke, so a question or an
+ * answer said with a pause goes whole. That alone is kept and sent with a delegation, and the rest
+ * is dropped once Jarvis has spoken again or the session ends. A delegation's backend may still
+ * find nothing in it was for Jarvis (`notForMe`): then the model is told so silently, and that
+ * segment, with what Jarvis said about it meanwhile, is dropped too.
  *
  * Each turn kept is handed to [onSaid] once its exchange is over, when the wearer speaks again or
  * the session ends ([finish]), and not while a delegation for it is at work, to be kept with
@@ -108,6 +109,8 @@ class LiveRelay(
   private var handed = false
   // The session is over ([finish]): a delegation still at work can no longer be said.
   private var ended = false
+  // A job's question said in it ([asked]): its choices.
+  private var choices = emptyList<String>()
 
   /**
    * The session has ended: its last turns are finished too, and what nobody answered is dropped. A
@@ -130,6 +133,12 @@ class LiveRelay(
     handed = true
   }
 
+  /** The choices of a job's question just said into the session: one said back is the answer, never goodbye ("no thanks"). */
+  @Synchronized
+  fun asked(choices: List<String>) {
+    this.choices = choices
+  }
+
   /**
    * The wearer said a closing ("thanks", "bye", "dah") in this session and things have been quiet
    * for [AFTER_CLOSING_MS], so Jarvis's goodbye has finished: time to hang up.
@@ -138,7 +147,7 @@ class LiveRelay(
   fun saidGoodbye(): Boolean {
     if (working || now() - lastActivity < AFTER_CLOSING_MS) return false
     val lastUser = said.lastOrNull { it.role == "user" } ?: return false
-    return Phrases.isStop(lastUser.text)
+    return Phrases.isStop(lastUser.text, choices)
   }
 
   @Synchronized
@@ -151,11 +160,13 @@ class LiveRelay(
         val d = ev["delegation"] as? JsonObject ?: return
         val id = d.str("id") ?: return
         if (d.str("target") != "client") return
-        // For the wearer's latest segment, which counts as answered from now: it, what was
-        // answered before it and Jarvis's words go with it, and wait for what comes back.
+        // For what the wearer said since Jarvis last spoke, which counts as answered from now: it
+        // (a question said with a pause is all of it), what was answered before and Jarvis's words
+        // go with it, and wait for what comes back.
         val latest = said.indexOfLast { it.role == "user" }.takeIf { it >= settled } ?: said.size
-        said.getOrNull(latest)?.answered = true
-        holdFrom = if (pending != null) minOf(holdFrom, latest) else latest
+        val from = if (latest < said.size) runStart(latest) else latest
+        for (i in from..latest) said.getOrNull(i)?.answered = true
+        holdFrom = if (pending != null) minOf(holdFrom, from) else from
         pending = id
         // One at a time: a second request would race the first and both would speak.
         work?.cancel()
@@ -188,10 +199,18 @@ class LiveRelay(
         handed = false
       }
       said += Said(role, delta.trimStart())
-      // The wearer again: the exchange before is over.
-      if (role == "user") settle(said.size - 1)
+      // The wearer again: the exchange before is over. Not what they said since Jarvis last spoke,
+      // which a delegation may yet take whole.
+      if (role == "user") settle(runStart(said.size - 1))
     }
     publish()
+  }
+
+  /** Where the run of the wearer's segments that [at] ends begins: after Jarvis last spoke, and never before what is settled. */
+  private fun runStart(at: Int): Int {
+    var i = at
+    while (i > settled && said[i - 1].role == "user" && !said[i - 1].notForMe) i--
+    return i
   }
 
   /** Hands on, in order, what is finished and kept; the rest of it is dropped. */
