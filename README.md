@@ -20,7 +20,9 @@ features on the phone.
   without me"). Say a choice, or "go on without me" ("teruskan"), and the job is told at once,
   with no model asked; "Told it." Anything else goes to Jarvis, which passes it on. "No thanks"
   is an answer then, not a goodbye, in Talk and in Live voice. A result says when its files are
-  in Jobs on your phone; an approval is only ever given by a tap there.
+  in Jobs on your phone. A card waiting for your OK that can be undone (publishing a site,
+  archiving mail) you may approve by voice: "publish the bake sale site", Jarvis reads you the
+  card whole and asks, and your "yes" approves it. Anything else needs a tap on your phone.
 - **Live voice** (a switch): GPT-Live through Jarvis for a natural back-and-forth you can talk
   over. Needs Jarvis's `OPENAI_API_KEY`, costs about $0.05 a minute, and hangs up after a quiet
   time you choose (10 s by default), 20 s after Jarvis last spoke, or when you say goodbye.
@@ -173,7 +175,8 @@ or signing out takes the fences away. It needs Google Play services.
   again to talk), **Alerts** (counting any that arrive meanwhile, and what waits for you; tap to
   reply), **Jobs** (each at work, with what it is doing; tap one for its list, and tap twice to
   stop it; an approval that needs no reading is given with two taps, any other says to read it
-  on your phone) or **Close**. A job's question shows as its own page: swipe to a choice, *Say
+  on your phone, or, for one that can be undone, say so in Chat and Jarvis reads it to you) or
+  **Close**. A job's question shows as its own page: swipe to a choice, *Say
   it*, or *Go on without me*, and tap.
   Leaving the chat goes back to it. It is only frames and the font's symbols, drawn by the glasses
   themselves, so a swipe shows at once.
