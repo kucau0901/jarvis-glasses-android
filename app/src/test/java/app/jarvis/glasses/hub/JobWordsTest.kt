@@ -108,4 +108,65 @@ class JobWordsTest {
     assertEquals("5 h left", hoursLeft(5 * 3_600_000L, 0))
     assertEquals("less than an hour left", hoursLeft(1_000, 0))
   }
+
+  @Test
+  fun aNewJobKeepsTheWebFormsRules() {
+    fun body(j: NewJob) = j.body().toString()
+    assertEquals("""{"task":"t","reach":"private"}""", body(NewJob("t", reach = "private")))
+    // Research is always the web's, and an ordinary job: nothing of theirs goes with it.
+    assertEquals(
+        """{"task":"t","reach":"web","engine":"research","team":true,"table":true}""",
+        body(NewJob("t", reach = "private", kind = "thorough", helpers = true, research = "table", specialty = "s1", project = "p1")),
+    )
+    // Building is the web's too; a repository only with it.
+    assertEquals("""{"task":"t","reach":"web","mode":"build","repo":"owner/name"}""", body(NewJob("t", reach = "private", kind = "build", repo = "owner/name")))
+    assertEquals("""{"task":"t","reach":"web","mode":"files"}""", body(NewJob("t", kind = "files", repo = "owner/name")))
+    assertEquals("""{"task":"t","reach":"private","mode":"thorough","helpers":true,"specialty":"s1","project":"p1"}""", body(NewJob("t", reach = "private", kind = "thorough", helpers = true, specialty = "s1", project = "p1")))
+  }
+
+  @Test
+  fun whatAJobIsDoingAndHowFarItHasGot() {
+    assertEquals("Thinking", JobWords.nowDoing(Job("j1")))
+    assertEquals("Searching the web, Checking your calendar", JobWords.nowDoing(Job("j1", doing = listOf("web_search", "calendar_check", "web_search"))))
+    assertEquals("Writing what it has: out of steps", JobWords.nowDoing(Job("j1", wrapping = "out of steps")))
+    assertEquals("Waiting for your answer", JobWords.nowDoing(Job("j1", waiting = Waiting("you", 1))))
+    val helpers = listOf(Helper(1, "Prices"), Helper(2, "Reviews", state = "reported"))
+    assertEquals("1 of 2 helpers at work", JobWords.nowDoing(Job("j1", helpers = helpers)))
+    assertEquals("Done: it has reported to the job", JobWords.helperNow(helpers[1], Job("j1")))
+    assertEquals("Came back with nothing: it was stopped", JobWords.helperNow(Helper(3, "x", state = "stopped"), Job("j1")))
+    assertEquals("Ended with the job", JobWords.helperNow(helpers[0], Job("j1", status = "done")))
+    assertEquals("2 of 3", JobWords.progress(listOf(Todo("a", "done"), Todo("b", "done"), Todo("c", "doing"), Todo("d", "dropped"))))
+    assertNull(JobWords.progress(emptyList()))
+    assertEquals("not done", JobWords.todoWord(Todo("c", "doing"), over = true))
+    assertEquals("now", JobWords.todoWord(Todo("c", "doing"), over = false))
+  }
+
+  @Test
+  fun whatItRanAndWhatItMadeAreSaidPlainly() {
+    fun ran(code: kotlinx.serialization.json.JsonPrimitive?, ms: Long? = null, p: String? = null) = Ran(cmd = "python3 make.py", code = code, ms = ms, p = p)
+    assertEquals("2.5 s", JobWords.ended(ran(kotlinx.serialization.json.JsonPrimitive(0), 2_500)))
+    assertEquals("done", JobWords.ended(ran(kotlinx.serialization.json.JsonPrimitive(0))))
+    assertEquals("failed (1), 2.5 s", JobWords.ended(ran(kotlinx.serialization.json.JsonPrimitive(1), 2_500)))
+    assertEquals("failed (stopped)", JobWords.ended(ran(kotlinx.serialization.json.JsonNull)))
+    assertEquals("running", JobWords.ended(ran(null)))
+    assertEquals("left running", JobWords.ended(ran(null, p = "p1")))
+    assertEquals("ended with the job", JobWords.ended(ran(null), over = true))
+    assertEquals("stopped, out of time after 2 min", JobWords.ended(Ran(cmd = "x", late = true, ms = 120_000)))
+    assertEquals("stopped: it filled its folder, or the disk", JobWords.ended(Ran(cmd = "x", full = true)))
+    assertEquals("512 bytes", JobWords.sizeSaid(512))
+    assertEquals("13 KB", JobWords.sizeSaid(12_600))
+    assertEquals("2.5 MB", JobWords.sizeSaid(2_500_000))
+  }
+
+  @Test
+  fun whatItWasToldAndWhatItMayDoAreSaidAsTheWebSaysThem() {
+    val j = Job("j1", reach = "web", told = listOf(Told(1, "Phones only", taken = true), Told(2, "", card = true), Told(3, "Under RM800", to = "question 1")))
+    assertEquals(listOf("You said: Phones only" to "taken in", "You changed its card" to "reaches it at its next step", "Your answer: Under RM800" to "reaches it at its next step"), JobWords.heard(j))
+    assertEquals("You said: Phones only" to "came too late", JobWords.heard(j.copy(status = "done", told = listOf(Told(1, "Phones only")))).single())
+    assertTrue(JobWords.powers(j).startsWith("Searches the web, and has nothing of yours but what it was asked."))
+    assertTrue(JobWords.powers(j.copy(repo = "owner/name", build = true)).startsWith("Has the files of owner/name"))
+    assertTrue(JobWords.powers(j.copy(mode = "thorough", limits = Limits(25, 60, 60))).endsWith("On the stronger model. Up to 60 minutes and 25 steps, 60 while its list moves."))
+    assertEquals("Research · the web only", JobWords.facts(Job("j1", engine = "research", status = "done"), 0))
+    assertEquals("Jarvis, thorough · 2 min so far, step 4 · your own things, no web · from “Fridays”", JobWords.facts(Job("j1", mode = "thorough", steps = 4, createdAt = 0, routine = Named("r1", "Fridays")), 120_000))
+  }
 }

@@ -14,6 +14,12 @@ data class Me(
     val live: Boolean = false,
     val locked: Boolean = false,
     val prefs: AlertPrefs = AlertPrefs(),
+    /** Jobs that make files may be started: the workshop is set up and theirs to use. */
+    val workshop: Boolean = false,
+    /** For an admin, the repositories a job that builds may be given (Settings → GitHub). */
+    val repos: List<String> = emptyList(),
+    /** Hermes is set up and theirs to ask. */
+    val hermes: Boolean = false,
 ) {
   fun can(scope: String) = role == "admin" || "*" in scopes || scope in scopes
 }
