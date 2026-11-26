@@ -45,6 +45,8 @@ fun ProposalCard(hub: Hub, p: Proposal, allowed: List<String>, changed: () -> Un
   var busy by remember(p.id) { mutableStateOf(false) }
   var problem by remember(p.id) { mutableStateOf("") }
   var allowedHere by remember(p.id) { mutableStateOf(false) }
+  // A learned offer being changed before it is kept.
+  var changing by remember(p.id) { mutableStateOf(false) }
   // The list read again: this card as it now stands.
   LaunchedEffect(p) { if (!busy) shown = p }
   // Approved, its call is made by Jarvis meanwhile (a car waking): looked at again, soon and then less often.
@@ -100,9 +102,12 @@ fun ProposalCard(hub: Hub, p: Proposal, allowed: List<String>, changed: () -> Un
       if (q.undone != null) Text("Put back: tapped.", style = MaterialTheme.typography.bodySmall, color = c.dim)
       if (allowedHere) Text(if (q.action?.tool == "house_do") "Jarvis now does this without asking, only when the sensors show it is right." else "Jobs now do this without asking.", style = MaterialTheme.typography.bodySmall, color = c.dim)
       if (problem.isNotEmpty()) Text(problem, style = MaterialTheme.typography.bodySmall, color = c.danger)
+      if (changing && pending) WayForm(hub, draftOfCard(q), mayFiles = false) { saved -> changing = false; if (saved) changed() }
       FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (pending) {
           OutlinedButton(enabled = !busy, onClick = { act { hub.answer(q.id, "approve") } }) { Text(q.verb ?: "Approve") }
+          // How a job was done, to be kept: changed first in its form, if they like; saved there, this card is settled.
+          if (q.action?.tool == "specialty_keep" && !changing) OutlinedButton(enabled = !busy, onClick = { changing = true }) { Text("Change it first") }
           OutlinedButton(enabled = !busy, onClick = { act { hub.answer(q.id, "decline") } }) { Text(if (q.about != null) "Don't suggest this again" else "Not now") }
         } else {
           if (q.canPutBack(now)) {

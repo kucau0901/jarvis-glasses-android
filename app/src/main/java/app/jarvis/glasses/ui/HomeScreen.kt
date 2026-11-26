@@ -90,7 +90,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-private enum class HomePage { MAIN, JOBS, ROUTINES }
+private enum class HomePage { MAIN, JOBS, ROUTINES, MEMORY }
 
 /** Home: the glasses' display, quick tiles, and the Home panels made in Jarvis. */
 @Composable
@@ -102,6 +102,7 @@ fun HomeScreen(app: JarvisApp, hooks: Hooks, openJob: String? = null, openCount:
     HomePage.MAIN -> HomeMain(app, hooks, open = { page = it })
     HomePage.JOBS -> JobsScreen(app, back = { page = HomePage.MAIN }, open = openJob)
     HomePage.ROUTINES -> RoutinesScreen(app, back = { page = HomePage.MAIN })
+    HomePage.MEMORY -> MemoryScreen(app, back = { page = HomePage.MAIN })
   }
 }
 
@@ -361,6 +362,7 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
       }
       item(key = "jobs") { QuickTile(Glyphs.Jobs, "Jobs") { open(HomePage.JOBS) } }
       item(key = "routines") { QuickTile(Glyphs.Clock, "Routines") { open(HomePage.ROUTINES) } }
+      if (app.prefs.token.startsWith("jss1_")) item(key = "memory") { QuickTile(Glyphs.Bulb, "Memory") { open(HomePage.MEMORY) } }
       item(key = "live") {
         QuickTile(Glyphs.Glasses, if (live) "Live voice: on" else "Live voice: off", selected = live) {
           live = !live

@@ -39,7 +39,9 @@ import app.jarvis.glasses.hub.jobFile
 import app.jarvis.glasses.hub.removeJob
 import app.jarvis.glasses.hub.stopHelper
 import app.jarvis.glasses.hub.tellJob
+import app.jarvis.glasses.hub.keepJobFile
 import app.jarvis.glasses.hub.useKey
+import app.jarvis.glasses.hub.wayOfJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,7 +56,7 @@ import kotlinx.coroutines.withContext
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun JobPage(app: JarvisApp, first: Job, back: () -> Unit, again: (NewJob) -> Unit) {
+fun JobPage(app: JarvisApp, first: Job, back: () -> Unit, again: (NewJob) -> Unit, me: app.jarvis.glasses.hub.Me? = null, projects: List<app.jarvis.glasses.hub.Named> = emptyList()) {
   BackHandler(onBack = back)
   val c = Even.colors
   val scope = rememberCoroutineScope()
@@ -64,6 +66,8 @@ fun JobPage(app: JarvisApp, first: Job, back: () -> Unit, again: (NewJob) -> Uni
   var bad by remember(first.id) { mutableStateOf(false) }
   var telling by rememberSaveable(first.id) { mutableStateOf("") }
   var changing by remember(first.id) { mutableStateOf<JobCard?>(null) }
+  // How it was done, being read over to keep (Keep for next time).
+  var keeping by remember(first.id) { mutableStateOf<app.jarvis.glasses.hub.WayDraft?>(null) }
 
   fun say(text: String, wrong: Boolean = false) {
     note = text
@@ -87,6 +91,7 @@ fun JobPage(app: JarvisApp, first: Job, back: () -> Unit, again: (NewJob) -> Uni
   val hears = j.engine == "jarvis" && running && j.wrapping == null
   LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     item { PageHead(j.title.ifEmpty { "Job" }, back) }
+    keeping?.let { d -> item { WayForm(app.hub, d, mayFiles = me?.workshop == true) { saved -> keeping = null; if (saved) say("Kept in Memory → Specialties.") } } }
     item {
       Tile(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -211,6 +216,15 @@ fun JobPage(app: JarvisApp, first: Job, back: () -> Unit, again: (NewJob) -> Uni
                 val told = j.told.filter { it.to == null && !it.card }.map { it.text }
                 again(NewJob((listOf(j.task) + told).joinToString("\n\n"), reach = j.reach ?: "private", kind = "thorough", specialty = j.using?.id, project = j.project?.id))
               }) { Text("Try again harder") }
+            }
+            // How it was done, to be done so again: read over and saved in Memory, nothing kept by this.
+            if (me?.can("memory.write") == true && j.engine == "jarvis" && j.status == "done" && keeping == null) {
+              OutlinedButton(onClick = { press("") { keeping = app.hub.wayOfJob(j.id) } }) { Text("Keep for next time") }
+            }
+            // What it made, for the project's next jobs to have.
+            val home = j.project?.let { p -> projects.firstOrNull { it.id == p.id } }
+            if (home != null && j.files.isNotEmpty()) {
+              OutlinedButton(onClick = { press("Kept in “${home.name}”.") { for (f in j.files) app.hub.keepJobFile(home.id, j.id, f.n) } }) { Text(if (j.files.size == 1) "Keep its file in “${home.name}”" else "Keep its files in “${home.name}”") }
             }
             if (running) OutlinedButton(onClick = { press("Stopped.") { app.hub.cancelJob(j.id) } }) { Text("Stop") }
             else Confirm("Remove", "Remove it and what it made?") {
