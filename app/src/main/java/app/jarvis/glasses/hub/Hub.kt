@@ -225,19 +225,6 @@ class Hub(internal val client: JarvisClient) {
     post<JsonObject>("/api/v1/routines/run", buildJsonObject { put("id", id) })
   }
 
-  /** A daily routine at [time] ("07:30"): say [text] as written, or ask Jarvis it ([ask]). */
-  suspend fun addDaily(name: String, time: String, text: String, ask: Boolean) {
-    post<JsonObject>(
-        "/api/v1/routines",
-        buildJsonObject {
-          put("name", name)
-          put("when", "daily")
-          put("time", time)
-          put(if (ask) "ask" else "say", text)
-        },
-    )
-  }
-
   /** A routine set off by [event]: Jarvis is asked [ask], and its answer sent only when it is worth an alert. */
   suspend fun addOnEvent(name: String, event: String, ask: String) {
     post<JsonObject>(

@@ -29,8 +29,8 @@ features on the phone.
 
 | Tab | What's in it |
 | --- | --- |
-| Home | Talk (works without the glasses too: the phone becomes a speakerphone), Jobs, Routines, the Live voice switch, and your Home panels from Jarvis, live. |
-| Chat | Typing to Jarvis in the look of Hark Pro: the same history as the web app's Chat, photos, pills showing what Jarvis is doing, rich answers (lists, tables, links), email drafts to send. |
+| Home | Talk (works without the glasses too: the phone becomes a speakerphone), **Now** (what your jobs ask and what waits for your OK), **Jobs** (the web's New job form; each job live, with its card, checklist, helpers, files to save, and Tell it; Projects and Sites), **Routines** (at a time, on some days, once, on a schedule or when something happens; one may start a background job, with a cost limit and a last day), **Memory** (specialties, and Which is true now?), the Live voice switch, and your Home panels from Jarvis, live. |
+| Chat | Typing to Jarvis in the look of Hark Pro: the same history as the web app's Chat, photos, pills showing what Jarvis is doing, rich answers (lists, tables, links), email drafts to send, a job's pill that follows it, its questions to answer, its files and cards, a component's video. |
 | Inbox | What your background jobs ask you (tap a choice, type your own answer, or go on without), Jarvis's proposals waiting for your OK, each shown whole, with what came of the ones decided lately, and family messages. |
 | Settings | The Jarvis address and sign-in, the glasses, voice, theme, and for a family admin **Jarvis settings**: everything in the web app's Settings panel. |
 | Settings → Location | Off until you turn it on. Save the places that matter ("Corner Grocer", "Office") while standing in them, and the phone tells Jarvis when you arrive at or leave one, so a routine can act on it: "when I get to the grocer, tell me my shopping list". |
