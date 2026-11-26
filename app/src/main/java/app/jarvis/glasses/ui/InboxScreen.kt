@@ -36,12 +36,15 @@ import androidx.compose.ui.unit.dp
 import app.jarvis.glasses.JarvisApp
 import app.jarvis.glasses.hub.ChatMessage
 import app.jarvis.glasses.hub.Convo
+import app.jarvis.glasses.hub.JobAsk
 import app.jarvis.glasses.hub.Proposals
+import app.jarvis.glasses.hub.stopAllowing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * What waits for the person: Jarvis's proposals needing an OK, and family messages. [openConvo]: a
+ * What waits for the person: their jobs' questions, Jarvis's proposals needing an OK (and what came
+ * of those decided lately), and family messages. [openConvo]: a
  * conversation to open (its notification tapped), once: [onOpened] says it was, so coming back to
  * the Inbox later shows the list. An open conversation's notification goes, as it is read here.
  */
@@ -76,30 +79,35 @@ private fun InboxMain(app: JarvisApp, open: (Convo) -> Unit) {
   LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     item { Heading("Inbox") }
     if (note.isNotEmpty()) item { Tile(Modifier.fillMaxWidth()) { Text(note, style = MaterialTheme.typography.bodyMedium, color = c.dim) } }
-    if (proposals.open.isNotEmpty()) item { Text("Waiting for your OK", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
-    items(proposals.open, key = { it.id }) { p ->
-      Tile(Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-          if (p.risk == "irreversible") Text("Can't be undone", style = MaterialTheme.typography.labelSmall, color = c.danger)
-          Text(p.says, style = MaterialTheme.typography.bodyLarge)
-          p.body?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.dim, maxLines = 8, overflow = TextOverflow.Ellipsis) }
-          if (p.why.isNotEmpty()) Text(p.why, style = MaterialTheme.typography.bodySmall, color = c.dim)
-          Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { scope.launch { runCatching { app.hub.answer(p.id, "approve") }; tick++ } }) { Text(p.verb ?: "Approve") }
-            OutlinedButton(onClick = { scope.launch { runCatching { app.hub.answer(p.id, "decline") }; tick++ } }) {
-              Text(if (p.about != null) "Don't suggest this again" else "Not now")
-            }
-          }
-        }
-      }
+    val now = System.currentTimeMillis()
+    if (proposals.asking.isNotEmpty()) item { Text("Questions from your jobs", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
+    items(proposals.asking, key = { "ask:${it.job}:${it.id}" }) { a ->
+      AskCard(app.hub, a.job, JobAsk(a.id, a.at, a.text, a.choices), tag = "${a.title} asks you") { tick++ }
     }
+    if (proposals.open.isNotEmpty()) item { Text("Waiting for your OK", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
+    items(proposals.open, key = { it.id }) { p -> ProposalCard(app.hub, p, proposals.allowed) { tick++ } }
     if (proposals.later.isNotEmpty()) item { Text("Later", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
     items(proposals.later, key = { it.id }) { l ->
       Tile(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-          Text(l.`when`, style = MaterialTheme.typography.labelSmall, color = c.dim)
+          Text(l.`when` + if (l.risk == "irreversible") " · can't be undone" else "", style = MaterialTheme.typography.labelSmall, color = c.dim)
           Text(l.says, style = MaterialTheme.typography.bodyMedium)
-          OutlinedButton(onClick = { scope.launch { runCatching { app.hub.answer(l.id, "decline") }; tick++ } }) { Text("Don't do this") }
+          l.body?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.dim) }
+          if (l.why.isNotEmpty()) Text(l.why, style = MaterialTheme.typography.bodySmall, color = c.dim)
+          OutlinedButton(onClick = { scope.launch { runCatching { app.hub.answer(l.id, "decline") }.onFailure { note = it.message ?: "" }; tick++ } }) { Text("Don't do this") }
+        }
+      }
+    }
+    // What came of what was tapped, and Put back while it may be.
+    val decided = proposals.recent.filter { it.state != "pending" }.take(RECENT)
+    if (decided.isNotEmpty()) item { Text("Decided lately", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
+    items(decided, key = { "done:${it.id}" }) { p -> ProposalCard(app.hub, p, proposals.allowed) { tick++ } }
+    if (proposals.allowed.isNotEmpty()) item { Text("Jobs do these without asking", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
+    items(proposals.allowed, key = { "allowed:$it" }) { kind ->
+      Tile(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(kindSaid(kind), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+          OutlinedButton(onClick = { scope.launch { runCatching { app.hub.stopAllowing(kind) }.onFailure { note = it.message ?: "" }; tick++ } }) { Text("Stop") }
         }
       }
     }
@@ -115,7 +123,7 @@ private fun InboxMain(app: JarvisApp, open: (Convo) -> Unit) {
         }
       }
     }
-    if (note.isEmpty() && proposals.open.isEmpty() && proposals.later.isEmpty() && convos.isEmpty()) {
+    if (note.isEmpty() && proposals.open.isEmpty() && proposals.later.isEmpty() && proposals.asking.isEmpty() && convos.isEmpty()) {
       item { Text("Nothing waiting.", style = MaterialTheme.typography.bodyMedium, color = c.dim, modifier = Modifier.padding(4.dp)) }
     }
   }
@@ -180,3 +188,8 @@ private fun ConversationPage(app: JarvisApp, convo: Convo, back: () -> Unit) {
   }
 }
 
+/** As many decided lately as the Inbox lists. */
+private const val RECENT = 10
+
+/** A kind jobs may do without asking ("car_command:lock"), in words: "car command: lock". */
+internal fun kindSaid(kind: String): String = kind.replace('_', ' ').replace(":", ": ")

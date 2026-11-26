@@ -1,5 +1,7 @@
 package app.jarvis.glasses.jarvis
 
+import app.jarvis.glasses.hub.AskRef
+import app.jarvis.glasses.hub.JobWords
 import app.jarvis.glasses.hub.SkillFrom
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,6 +14,20 @@ data class Turn(val role: String, val text: String) {
   companion object {
     fun user(text: String) = Turn("user", text)
     fun jarvis(text: String) = Turn("assistant", text)
+
+    /**
+     * [turns] with neighbours of the same role joined, a line apart, as the web app's history joins
+     * them (src/app/history.ts there): Jarvis reads the person's own words from their last turn, so
+     * a question said in two goes is all of it.
+     */
+    fun merged(turns: List<Turn>): List<Turn> {
+      val out = mutableListOf<Turn>()
+      for (t in turns) {
+        val last = out.lastOrNull()
+        if (last != null && last.role == t.role) out[out.size - 1] = Turn(t.role, last.text + "\n" + t.text) else out += t
+      }
+      return out
+    }
   }
 }
 
@@ -67,14 +83,28 @@ data class Alert(
     val skill: SkillFrom? = null,
     /** What a look around said: Chat offers Not now and Less of this under it. An older Jarvis sends none. */
     val look: Boolean = false,
+    /** A background job's question, not its result: [text] is the question, then its choices as "- " lines. */
+    val ask: AskRef? = null,
+    /** The job whose result this is. */
+    val job: String? = null,
 ) {
+  /** A job's question without its choices, and the choices it gave; empty for any other alert. */
+  val question: String
+    get() = if (ask != null) JobWords.askOf(text).first else text
+
+  val choices: List<String>
+    get() = if (ask != null) JobWords.askOf(text).second else emptyList()
+
   /** How it reads, and is said: "Title: text", as the web app has it; just the text under "Jarvis". */
   val said: String
     get() = if (title == "Jarvis") text else "$title: $text"
 
-  /** How the model is told it, as Chat's transcript has it: a bot's words quoted as its own ([SkillFrom.told]), else as [said]. */
+  /**
+   * How the model is told it, as Chat's transcript has it: a bot's words, or a job's question,
+   * quoted as their own ([SkillFrom.told], [JobWords.askHistory]), else as [said].
+   */
   val told: String
-    get() = skill?.told(text) ?: said
+    get() = skill?.told(text) ?: ask?.let { JobWords.askHistory(title, text) } ?: said
 
   companion object {
     /** The `alert` field of a `{"type":"alert"}` message, or null for anything else. */
@@ -86,7 +116,11 @@ data class Alert(
       if (text.isEmpty()) return null
       val speak = a.bool("speak") ?: true
       val skill = (a["skill"] as? JsonObject)?.let { s -> s.str("name")?.let { SkillFrom(s.str("id").orEmpty(), it, s.str("about")) } }
-      return Alert(id, a.str("title") ?: "Jarvis", text, speak, a.bool("urgent") ?: false, a.bool("talk") ?: speak, a.str("source").orEmpty(), a.str("convo"), skill, look = a.bool("look") == true)
+      val ask = (a["ask"] as? JsonObject)?.let { q -> q.str("job")?.let { job -> q.str("id")?.let { AskRef(job, it) } } }
+      return Alert(
+          id, a.str("title") ?: "Jarvis", text, speak, a.bool("urgent") ?: false, a.bool("talk") ?: speak, a.str("source").orEmpty(), a.str("convo"), skill,
+          look = a.bool("look") == true, ask = ask, job = a.str("job"),
+      )
     }
   }
 }

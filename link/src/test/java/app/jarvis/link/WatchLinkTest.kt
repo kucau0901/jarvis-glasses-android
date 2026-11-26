@@ -102,4 +102,12 @@ class WatchLinkTest {
   fun aNewerReplysExtraFieldsAreIgnored() {
     assertEquals(Reply.Progress("q1", "x"), WatchLink.reply(WatchLink.REPLY, """{"type":"progress","id":"q1","text":"x","more":1}""".toByteArray()))
   }
+
+  @Test
+  fun anApprovalFromAnOlderPhoneIsNotOneForThePhone() {
+    val old = WatchLink.reply(WatchLink.REPLY, """{"type":"approvals","id":"f1","open":[{"id":"p1","says":"Lock the car","verb":"Lock"}]}""".toByteArray()) as Reply.Approvals
+    assertEquals(false, old.open.single().phone)
+    val new = WatchLink.reply(WatchLink.REPLY, WatchLink.encode(Reply.Approvals("f2", listOf(Approval("p2", "Publish the site", verb = "On your phone", phone = true))))) as Reply.Approvals
+    assertEquals(true, new.open.single().phone)
+  }
 }

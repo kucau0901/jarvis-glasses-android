@@ -1,5 +1,6 @@
 package app.jarvis.glasses.conversation
 
+import app.jarvis.glasses.hub.AskRef
 import app.jarvis.glasses.hub.SkillFrom
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.Turn
@@ -475,11 +476,25 @@ class ConversationTest {
     assertTrue(Phrases.isStop("ok, terima kasih"))
     assertFalse(Phrases.isStop("thanks, and what's the weather"))
     assertTrue(Phrases.isAck("Okay."))
+    // A job's choices are answers, whatever else they would be.
+    assertFalse(Phrases.isStop("No thanks.", listOf("Yes", "No thanks")))
+    assertTrue(Phrases.isStop("No thanks.", listOf("Yes", "Up to RM1,000")))
+    assertFalse(Phrases.isAck("OK", listOf("OK", "Wait")))
     assertTrue(Phrases.isAck("Ага."))
     assertFalse(Phrases.isAck("okay, and tomorrow?"))
     assertTrue(Phrases.isLaunchPhrase("Hey Meta, open the Jarvis app"))
     assertTrue(Phrases.isLaunchPhrase("Hi Meta, open Jarvis."))
     assertFalse(Phrases.isLaunchPhrase("open jarvis settings on the car"))
     assertFalse(Phrases.isLaunchPhrase("what does meta mean"))
+  }
+
+  @Test
+  fun aChoiceOfAJobsQuestionIsAnsweredEvenWhenItSoundsLikeGoodbye() = runTest {
+    val brain = FakeBrain()
+    val alert = Alert("al1", "A question: Dashcams", "Any other brand?\n\n- No thanks\n- Show me Xiaomi", speak = true, urgent = false, source = "job", ask = AskRef("j1", "q1"))
+    conversation(FakeEars("no thanks", "thanks"), FakeMouth(), brain).start(alert)
+    advanceUntilIdle()
+    // The choice is sent; the "thanks" after it still ends the conversation.
+    assertEquals(listOf("no thanks"), brain.asked.map { it.first })
   }
 }

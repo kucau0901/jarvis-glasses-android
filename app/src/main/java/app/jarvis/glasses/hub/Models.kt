@@ -180,6 +180,8 @@ data class Said(
     val skill: SkillFrom? = null,
     /** A page the answer made, drawn as a card under it (src/app/pageCard.ts there). */
     val page: MadePage? = null,
+    /** A background job's question (src/worker/lib/conversation.ts there): quoted as the job's, never Jarvis's words. Only Jarvis says this. */
+    val ask: AskRef? = null,
 ) {
   /** Whose words Chat shows it under: its routine's, job's or alert's name (a bot's, for a skill's); none for Jarvis's own. */
   val from: String?
@@ -202,7 +204,7 @@ data class Said(
    * ([SkillFrom.told]), Jarvis's answer to one as Jarvis's, anything else as [shown].
    */
   val read: String
-    get() = skill?.takeIf { !it.answered }?.told(text) ?: shown
+    get() = skill?.takeIf { !it.answered }?.told(text) ?: ask?.let { JobWords.askHistory(alert?.title ?: from ?: "", text) } ?: shown
 
   companion object {
     /** A new turn's id, in the shape Jarvis keeps them. */
@@ -240,13 +242,13 @@ data class SkillFrom(val id: String = "", val name: String = "", val about: Stri
 }
 
 /** As much of a bot's words as the model is told, as the web app's. */
-private const val SKILL_SAID = 1_000
+internal const val SKILL_SAID = 1_000
 
 // Every kind of space and line break: JavaScript's \s, and more. Spelled out because Android's
 // regex engine (ICU) rejects the JVM's (?U) flag, and the first bot message crashed the app.
 private val SPACES = Regex("[\\s\\p{Z}\\u000B\\u0085\\uFEFF]+")
 
-private fun oneLine(s: String, max: Int) = s.replace(SPACES, " ").trim().replace("\"", "”").take(max)
+internal fun oneLine(s: String, max: Int) = s.replace(SPACES, " ").trim().replace("\"", "”").take(max)
 
 @Serializable data class Conversation(val said: List<Said> = emptyList())
 
@@ -265,50 +267,9 @@ private fun oneLine(s: String, max: Int) = s.replace(SPACES, " ").trim().replace
 
 @Serializable data class Sent(val message: ChatMessage)
 
-// Approvals (src/worker/lib/proposals.ts)
+// Approvals are in Approvals.kt, jobs in Jobs.kt.
 
-@Serializable
-data class Proposals(
-    val open: List<Proposal> = emptyList(),
-    val recent: List<Proposal> = emptyList(),
-    val later: List<LaterProposal> = emptyList(),
-)
-
-@Serializable
-data class Proposal(
-    val id: String,
-    val says: String,
-    val why: String = "",
-    val body: String? = null,
-    val risk: String = "reversible",
-    val verb: String? = null,
-    val about: String? = null,
-    val expires: Long = 0,
-    val state: String = "pending",
-    val outcome: Outcome? = null,
-)
-
-@Serializable data class Outcome(val ok: Boolean, val text: String)
-
-@Serializable data class LaterProposal(val id: String, val says: String, val why: String = "", val `when`: String = "")
-
-// Jobs and routines (src/worker/lib/jobs.ts, routines.ts)
-
-@Serializable data class Jobs(val jobs: List<Job> = emptyList())
-
-@Serializable data class OneJob(val job: Job)
-
-@Serializable
-data class Job(
-    val id: String,
-    val title: String = "",
-    val task: String = "",
-    val status: String = "running",
-    val createdAt: Long = 0,
-    val summary: String? = null,
-    val result: String? = null,
-    val error: String? = null,
-)
+// Routines (src/worker/lib/routines.ts)
 
 @Serializable data class Routines(val routines: List<Routine> = emptyList())
 

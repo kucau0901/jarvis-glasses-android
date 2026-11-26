@@ -5,6 +5,7 @@ import app.jarvis.glasses.jarvis.SseParser
 import app.jarvis.glasses.jarvis.Turn
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -111,21 +112,49 @@ class LiveRelayTest {
   }
 
   @Test
-  fun aDelegationGoesWithTheAnsweredTurnsAndTheLatestSegmentOnly() = runTest {
+  fun aDelegationGoesWithTheAnsweredTurnsAndAllSaidSinceJarvisSpoke() = runTest {
     val asked = mutableListOf<Pair<String, List<Turn>>>()
     val r = relay(Sent(), listOf("""{"type":"result","text":"One."}"""), asked)
     r.seed(listOf(Turn.jarvis("Leave in ten minutes.")))
     r.onMessage(user("and now the news", 0, 1_000))
     r.onMessage(user("what's on today", 3_000, 4_000))
     r.onMessage(jarvis("Two meetings."))
+    // Said since Jarvis last spoke, with a pause: a TV's words may come along, which Jarvis's own
+    // not-for-me check sets aside; what Jarvis answered before stays its one segment.
     r.onMessage(user("the match tonight", 8_000, 9_000))
     r.onMessage(user("and tomorrow?", 11_000, 12_000))
     r.onMessage(delegation("d1"))
     advanceUntilIdle()
     assertEquals(
-        listOf(Turn.jarvis("Leave in ten minutes."), Turn.user("what's on today"), Turn.jarvis("Two meetings."), Turn.user("and tomorrow?")),
+        listOf(Turn.jarvis("Leave in ten minutes."), Turn.user("what's on today"), Turn.jarvis("Two meetings."), Turn.user("the match tonight"), Turn.user("and tomorrow?")),
         asked.single().second,
     )
+  }
+
+  @Test
+  fun aPauseInsideTheWearersQuestionGoesWithItAndIsKept() = runTest {
+    val asked = mutableListOf<Pair<String, List<Turn>>>()
+    val said = mutableListOf<Turn>()
+    val r = relay(Sent(), listOf("""{"type":"result","text":"Asked Hermes."}"""), asked, said)
+    r.onMessage(user("ask Hermes to tidy the photos", 0, 1_000))
+    r.onMessage(user("from last week", 2_700, 4_000))
+    r.onMessage(delegation("d1"))
+    advanceUntilIdle()
+    assertEquals(listOf(Turn.user("ask Hermes to tidy the photos"), Turn.user("from last week")), asked.single().second)
+    r.onMessage(jarvis("Asked Hermes."))
+    r.finish()
+    assertEquals(listOf(Turn.user("ask Hermes to tidy the photos"), Turn.user("from last week"), Turn.jarvis("Asked Hermes.")), said)
+  }
+
+  @Test
+  fun aChoiceOfAJobsQuestionSaidIntoTheSessionIsNoGoodbye() = runTest {
+    val r = relay(Sent(), emptyList())
+    r.asked(listOf("No thanks", "Show me Xiaomi"))
+    r.onMessage(user("no thanks"))
+    advanceTimeBy(LiveRelay.AFTER_CLOSING_MS + 1)
+    assertFalse(r.saidGoodbye())
+    r.asked(emptyList())
+    assertTrue(r.saidGoodbye())
   }
 
   @Test

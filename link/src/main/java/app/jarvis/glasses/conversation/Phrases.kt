@@ -111,8 +111,11 @@ object Phrases {
           "faham",
       )
 
-  /** A bare acknowledgement after an answer: keep listening, ask nothing ("Okay." re-asked the last question). */
-  fun isAck(heard: String): Boolean = normalise(heard) in ACK
+  /**
+   * A bare acknowledgement after an answer: keep listening, ask nothing ("Okay." re-asked the last
+   * question). Not when it is one of [keep], the choices a job's question offered: then it is the answer.
+   */
+  fun isAck(heard: String, keep: List<String> = emptyList()): Boolean = normalise(heard).let { it in ACK && !chosen(it, keep) }
 
   /**
    * "Hey Meta, open Jarvis" heard by Jarvis itself, said again during a conversation: not a question
@@ -123,8 +126,14 @@ object Phrases {
     return t.contains("meta") && Regex("\\b(open|start|launch)( the)? jarvis\\b").containsMatchIn(t)
   }
 
-  /** Only a short utterance that is wholly a closing: "thanks, and what's the weather" is a question. */
-  fun isStop(heard: String): Boolean = normalise(heard) in STOP
+  /**
+   * Only a short utterance that is wholly a closing: "thanks, and what's the weather" is a question.
+   * Not when it is one of [keep], the choices a job's question offered ("No thanks"): then it is the answer.
+   */
+  fun isStop(heard: String, keep: List<String> = emptyList()): Boolean = normalise(heard).let { it in STOP && !chosen(it, keep) }
+
+  /** Whether [heard], normalised, is one of [choices]. */
+  private fun chosen(heard: String, choices: List<String>) = choices.any { normalise(it) == heard }
 
   private fun normalise(s: String): String =
       s.lowercase().replace('’', '\'').replace(Regex("[^\\p{L}\\p{N}' ]"), " ").replace(Regex("\\s+"), " ").trim()

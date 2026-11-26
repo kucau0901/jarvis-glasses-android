@@ -261,10 +261,13 @@ private fun ApprovalCard(a: Approval, busy: Boolean, onYes: () -> Unit, onNo: ()
       Modifier.fillMaxWidth().padding(horizontal = 6.dp).clip(RoundedCornerShape(16.dp)).background(c.tile).padding(12.dp),
       horizontalAlignment = Alignment.CenterHorizontally,
   ) {
+    if (a.risk == "irreversible") Text("Can't be undone", color = c.danger, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 4.dp))
     Text(a.says, color = c.ink, fontSize = 14.sp, textAlign = TextAlign.Center)
     if (a.why.isNotBlank()) Text(a.why, color = c.dim, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+    // More to read than the wrist can show: approved on the phone, where all of it is.
+    if (a.phone) Text("Read it on your phone to approve it", color = c.dim, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
     Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      Pill(if (busy) "…" else a.verb, c.tintGood, onYes)
+      if (!a.phone) Pill(if (busy) "…" else a.verb, c.tintGood, onYes)
       Pill("No", c.danger, onNo)
     }
   }

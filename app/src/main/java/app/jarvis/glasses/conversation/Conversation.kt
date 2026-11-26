@@ -164,10 +164,12 @@ class Conversation(
           if (first) mouth.say("I didn't catch that.")
           break
         }
-        if (Phrases.isStop(heard)) break
+        // A job's question just said: its choices are answers, "no thanks" among them, never a closing.
+        val choices = opened?.choices.orEmpty()
+        if (Phrases.isStop(heard, choices)) break
         // The launch phrase said again, or a bare "okay": listen again, ask nothing. Once only, so a
         // TV saying "okay" now and then doesn't keep the microphone open.
-        if (Phrases.isLaunchPhrase(heard) || Phrases.isAck(heard)) {
+        if (Phrases.isLaunchPhrase(heard) || Phrases.isAck(heard, choices)) {
           if (relistened) break
           relistened = true
           continue

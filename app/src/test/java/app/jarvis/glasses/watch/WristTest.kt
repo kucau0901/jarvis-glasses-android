@@ -139,4 +139,55 @@ class WristTest {
     assertEquals(Approval("p1", "Send the email", "You asked", "Send", "reversible"), HubWrist.approvalOf(Proposal("p1", "Send the email", "You asked", verb = "Send")))
     assertEquals("Approve", HubWrist.approvalOf(Proposal("p1", "x")).verb)
   }
+
+  @Test
+  fun aCardToReadFirstIsShownAsOneForThePhone() {
+    val publish = Proposal("p1", "Publish the site “bake-sale” (12 files)", body = "index.html\nstyle.css", verb = "Publish")
+    assertEquals(Approval("p1", publish.says, "", HubWrist.ON_PHONE, "reversible", phone = true), HubWrist.approvalOf(publish))
+    val lock = Proposal("p2", "Lock the car", verb = "Lock")
+    assertEquals(Approval("p2", "Lock the car", "", "Lock", "reversible", phone = false), HubWrist.approvalOf(lock))
+  }
+
+  @Test
+  fun anOldWatchsYesToACardToReadFirstIsRefusedAndItsNoTaken() = kotlinx.coroutines.runBlocking {
+    val server = okhttp3.mockwebserver.MockWebServer()
+    server.start()
+    try {
+      val hub = app.jarvis.glasses.hub.Hub(app.jarvis.glasses.jarvis.JarvisClient({ server.url("/").toString() }, { "jss1_test" }, { emptyMap() }))
+      val open = """{"open":[{"id":"p1","says":"Open a pull request in owner/name (3 files): Footer","risk":"irreversible","state":"pending"}],"recent":[],"later":[]}"""
+      server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(open))
+      val refused = runCatching { HubWrist(hub).approve("p1", yes = true) }.exceptionOrNull()
+      assertEquals(HubWrist.READ_ON_PHONE, refused?.message)
+      assertEquals("/api/hub/proposals", server.takeRequest().path)
+      // Nothing was answered; a no goes straight through.
+      server.enqueue(okhttp3.mockwebserver.MockResponse().setBody("""{"proposal":{"id":"p1","says":"x","state":"declined"}}"""))
+      HubWrist(hub).approve("p1", yes = false)
+      val req = server.takeRequest()
+      assertEquals("/api/hub/proposals/answer", req.path)
+      assertEquals("""{"id":"p1","answer":"decline"}""", req.body.readUtf8())
+      assertEquals(2, server.requestCount)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun theWatchFaceCountsJobsAtWorkNotThoseWaitingForYou() = kotlinx.coroutines.runBlocking {
+    val server = okhttp3.mockwebserver.MockWebServer()
+    server.start()
+    try {
+      val hub = app.jarvis.glasses.hub.Hub(app.jarvis.glasses.jarvis.JarvisClient({ server.url("/").toString() }, { "jss1_test" }, { emptyMap() }))
+      server.dispatcher =
+          object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) =
+                okhttp3.mockwebserver.MockResponse().setBody(
+                    if (request.path == "/api/v1/jobs") """{"jobs":[{"id":"j1","status":"running"},{"id":"j2","status":"running","waiting":{"for":"you","until":9}},{"id":"j3","status":"done"}]}"""
+                    else """{"open":[],"recent":[],"later":[]}""",
+                )
+          }
+      assertEquals(0 to 1, HubWrist(hub).glance())
+    } finally {
+      server.shutdown()
+    }
+  }
 }

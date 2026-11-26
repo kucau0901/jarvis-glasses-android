@@ -362,8 +362,9 @@ class JarvisClient(
       }
     }
 
+    // Joined as the web joins them ([Turn.merged]), for every request: Jarvis reads the person's own words from their last turn.
     private fun turnsJson(turns: List<Turn>) = buildJsonArray {
-      for (t in turns) add(buildJsonObject { put("role", t.role); put("text", t.text) })
+      for (t in Turn.merged(turns)) add(buildJsonObject { put("role", t.role); put("text", t.text) })
     }
 
     /** Jarvis's own words for a failure when it gave some (`{"error": …}`), else the status. */

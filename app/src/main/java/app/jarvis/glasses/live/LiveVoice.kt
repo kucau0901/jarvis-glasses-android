@@ -115,7 +115,7 @@ class LiveVoice(
   fun tell(alert: Alert): Boolean {
     val c = channel?.takeIf { it.state() == DataChannel.State.OPEN } ?: return false
     val sent = c.send(DataChannel.Buffer(ByteBuffer.wrap(LiveRelay.say(alert.said).toByteArray()), false))
-    if (sent) openRelay?.telling()
+    if (sent) openRelay?.let { it.telling(); it.asked(alert.choices) }
     return sent
   }
 
@@ -164,6 +164,7 @@ class LiveVoice(
         runCatching { channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray()), false)) }
       }, onSaid = onSaid, onShown = onShown)
       r.seed(history)
+      opening?.let { r.asked(it.choices) }
       relay = r
       first = null
       channel.registerObserver(

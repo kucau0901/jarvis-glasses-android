@@ -503,4 +503,87 @@ class HubTest {
     assertEquals("al00003", b["id"]!!.jsonPrimitive.content)
     assertEquals("later", b["answer"]!!.jsonPrimitive.content)
   }
+
+  @Test
+  fun aJobStartsWhereItWasAskedToLook() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(201).setBody("""{"ok":true,"job":{"id":"j1","title":"Dashcams","status":"running","reach":"web"}}"""))
+    assertEquals("web", hub.startJob("Compare three dashcams under RM800", "web").reach)
+    val req = server.takeRequest()
+    assertEquals("/api/v1/jobs", req.path)
+    assertEquals("""{"task":"Compare three dashcams under RM800","reach":"web"}""", req.body.readUtf8())
+    // Refused: Jarvis's own words reach whoever pressed Start.
+    server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":"three of your jobs are at work already: wait for one, or stop one"}"""))
+    val e = runCatching { hub.startJob("Another", "private") }.exceptionOrNull()
+    assertTrue(e?.message.orEmpty().contains("three of your jobs are at work already"))
+  }
+
+  @Test
+  fun aJobsStateQuestionsAndCaveatsAreRead() = runBlocking {
+    server.enqueue(
+        MockResponse()
+            .setBody(
+                """{"jobs":[{"id":"j1","title":"Dashcams","task":"t","engine":"jarvis","status":"running","createdAt":1,"steps":4,"reach":"web",
+                    "waiting":{"for":"you","until":99},"asks":[{"id":"q1","at":5,"text":"Under RM800 only?","choices":["Yes","Up to RM1,000"]}],
+                    "card":{"outcome":"o","limits":[],"assumptions":[]},"todo":[{"text":"a","state":"open"}],"cost":null},
+                  {"id":"j2","title":"Mail","status":"failed","hasResult":true,"error":"Part done: out of steps","missing":["The rest of March"],"assumed":["Promotions can wait"]}]}""",
+            ),
+    )
+    val (asking, part) = hub.jobs()
+    assertEquals("you", asking.waiting?.forWhat)
+    assertEquals(listOf("Yes", "Up to RM1,000"), asking.asks.single().choices)
+    assertEquals("part done", JobWords.status(part))
+    assertEquals(listOf("The rest of March"), part.missing)
+    assertEquals(listOf("Promotions can wait"), part.assumed)
+  }
+
+  @Test
+  fun aQuestionIsAnsweredSkippedAndAJobRemoved() = runBlocking {
+    repeat(3) { server.enqueue(MockResponse().setBody("""{"ok":true}""")) }
+    hub.answerJob("j1", "q1", "Up to RM1,000")
+    var req = server.takeRequest()
+    assertEquals("/api/v1/jobs/tell", req.path)
+    assertEquals("""{"id":"j1","question":"q1","text":"Up to RM1,000"}""", req.body.readUtf8())
+    hub.skipQuestion("j1", "q2")
+    assertEquals("""{"id":"j1","question":"q2","skip":true}""", server.takeRequest().body.readUtf8())
+    hub.removeJob("j 1")
+    req = server.takeRequest()
+    assertEquals("DELETE", req.method)
+    assertEquals("/api/v1/jobs?id=j+1", req.path)
+  }
+
+  @Test
+  fun aCardsAnswerComesBackAsItNowStands() = runBlocking {
+    server.enqueue(MockResponse().setBody("""{"proposal":{"id":"a1","says":"Publish the site “bake-sale”","state":"running","risk":"reversible","verb":"Publish"}}"""))
+    assertEquals("running", hub.answer("a1", "approve").state)
+    assertEquals("""{"id":"a1","answer":"approve"}""", server.takeRequest().body.readUtf8())
+    // Answered elsewhere meanwhile: why, in words.
+    server.enqueue(MockResponse().setResponseCode(409).setBody("""{"error":"That was answered already."}"""))
+    assertEquals("That was answered already.", runCatching { hub.answer("a1", "approve") }.exceptionOrNull()?.message)
+    server.takeRequest()
+    server.enqueue(MockResponse().setBody("""{"ok":true,"allowed":["car_command:lock"]}"""))
+    assertEquals(listOf("car_command:lock"), hub.allow("a2"))
+    assertEquals("""{"id":"a2"}""", server.takeRequest().body.readUtf8())
+    server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+    hub.stopAllowing("car_command:lock")
+    val req = server.takeRequest()
+    assertEquals("DELETE", req.method)
+    assertEquals("/api/hub/proposals/allow?category=car_command%3Alock", req.path)
+  }
+
+  @Test
+  fun whatJobsAskIsListedWithWhatWaitsForAnOk() = runBlocking {
+    server.enqueue(
+        MockResponse()
+            .setBody(
+                """{"open":[{"id":"a1","says":"Open a pull request in owner/name (3 files): Footer","risk":"irreversible","body":"Changes:\n- index.html\n- style.css","state":"pending"}],
+                  "recent":[],"allowed":["car_command:lock"],"later":[{"id":"a2","says":"Send the reply","risk":"irreversible","when":"tomorrow 9:00","body":"Dear Wren"}],
+                  "asking":[{"job":"j1","title":"Dashcams","reach":"web","id":"q1","at":5,"text":"Under RM800 only?","choices":["Yes","No"]}]}""",
+            ),
+    )
+    val p = hub.proposals()
+    assertEquals("Under RM800 only?", p.asking.single().text)
+    assertEquals(listOf("car_command:lock"), p.allowed)
+    assertTrue(p.open.single().needsPhone)
+    assertEquals("Dear Wren", p.later.single().body)
+  }
 }

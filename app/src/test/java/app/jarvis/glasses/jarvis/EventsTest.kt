@@ -149,4 +149,29 @@ class EventsTest {
     assertEquals("""{"type":"ack","id":"k3v","visible":true}""", AlertSocket.ack("k3v"))
     assertEquals("""{"type":"presence","visible":false}""", AlertSocket.presence(false))
   }
+
+  @Test
+  fun aJobsQuestionIsAnAlertWithItsChoicesAndToldQuoted() {
+    val msg = SseParser.json.parseToJsonElement(
+        """{"type":"alert","alert":{"id":"al1","at":1,"title":"A question: Dashcams","text":"Under RM800 only?\n\n- Yes\n- No thanks","speak":true,"talk":true,"urgent":false,"source":"job","ask":{"job":"j1","id":"q1"}}}""",
+    ) as JsonObject
+    val a = Alert.fromMessage(msg)!!
+    assertEquals("j1", a.ask?.job)
+    assertNull(a.job)
+    assertEquals("Under RM800 only?", a.question)
+    assertEquals(listOf("Yes", "No thanks"), a.choices)
+    // The job's words, never Jarvis's own, to the model.
+    assertTrue(a.told.contains("(a background job asks the user, in its own words;"))
+    // A result names its job, and has no choices.
+    val done = Alert.fromMessage(SseParser.json.parseToJsonElement("""{"type":"alert","alert":{"id":"al2","title":"Done: Dashcams","text":"Three found.\n\n- One","source":"job","job":"j1"}}""") as JsonObject)!!
+    assertEquals("j1", done.job)
+    assertEquals(emptyList<String>(), done.choices)
+  }
+
+  @Test
+  fun turnsOfOneRoleInARowAreJoinedAsTheWebJoinsThem() {
+    val turns = listOf(Turn.jarvis("Leave in ten."), Turn.user("the match tonight"), Turn.user("and tomorrow?"), Turn.jarvis("Rain."), Turn.user("thanks"))
+    assertEquals(listOf(Turn.jarvis("Leave in ten."), Turn.user("the match tonight\nand tomorrow?"), Turn.jarvis("Rain."), Turn.user("thanks")), Turn.merged(turns))
+    assertEquals(emptyList<Turn>(), Turn.merged(emptyList()))
+  }
 }

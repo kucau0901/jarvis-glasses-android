@@ -7,6 +7,8 @@ import app.jarvis.glasses.hub.PanelRow
 import app.jarvis.glasses.hub.PanelsReply
 import app.jarvis.glasses.hub.Proposal
 import app.jarvis.glasses.hub.Reading
+import app.jarvis.glasses.hub.needsPhone
+import app.jarvis.glasses.jarvis.JarvisClient
 import app.jarvis.link.Approval
 import app.jarvis.link.Button
 import app.jarvis.link.Dial
@@ -24,7 +26,7 @@ interface Wrist {
 
   suspend fun approvals(): List<Approval>
 
-  /** Approvals waiting, and jobs running. */
+  /** Approvals waiting, and jobs at work (not those waiting for their person). */
   suspend fun glance(): Pair<Int, Int>
 
   /** What Jarvis said of it. [member]: one of a room's things, by its key. */
@@ -50,13 +52,21 @@ class HubWrist(private val hub: Hub) : Wrist {
 
   override suspend fun glance(): Pair<Int, Int> = coroutineScope {
     val approvals = async { hub.proposals().open.count { it.state == "pending" } }
-    val jobs = async { hub.jobs().count { it.status == "running" } }
+    val jobs = async { hub.jobs().count { it.status == "running" && it.waiting?.forWhat != "you" } }
     approvals.await() to jobs.await()
   }
 
   override suspend fun act(panel: String, key: String, action: String, value: String?, member: String?): String = hub.act(panel, key, action, member = member, value = value)
 
-  override suspend fun approve(proposal: String, yes: Boolean) = hub.answer(proposal, if (yes) "approve" else "decline")
+  /**
+   * Yes only to a card that needs no reading: one with words or files to read, that can't be undone,
+   * or a way of doing things to keep is refused here, as Jarvis has it now, so even a watch app made
+   * before it knew of them can't approve one unread ([needsPhone]). No is always taken.
+   */
+  override suspend fun approve(proposal: String, yes: Boolean) {
+    if (yes && hub.proposals().open.firstOrNull { it.id == proposal }?.needsPhone == true) throw JarvisClient.JarvisException(READ_ON_PHONE)
+    hub.answer(proposal, if (yes) "approve" else "decline")
+  }
 
   companion object {
     /** As many of Home's things as one message to the watch holds with room to spare. */
@@ -135,7 +145,12 @@ class HubWrist(private val hub: Hub) : Wrist {
           else -> row.tiles.joinToString(" · ") { "${it.label} ${it.value}".trim() }
         }
 
-    fun approvalOf(p: Proposal) = Approval(p.id, p.says, p.why, p.verb ?: "Approve", p.risk)
+    /** What the wrist shows of a card: one to read first says so, in place of its verb ([Approval.phone]). */
+    fun approvalOf(p: Proposal) = Approval(p.id, p.says, p.why, if (p.needsPhone) ON_PHONE else p.verb ?: "Approve", p.risk, phone = p.needsPhone)
+
+    /** An older watch app shows this as the button's word, and the refusal below when it is pressed. */
+    const val ON_PHONE = "On your phone"
+    const val READ_ON_PHONE = "Read it on your phone first: it has more to it than the watch can show."
 
     /** "fan_only" as "Fan only". */
     private fun pretty(word: String) = word.replace('_', ' ').replaceFirstChar { it.uppercase() }
