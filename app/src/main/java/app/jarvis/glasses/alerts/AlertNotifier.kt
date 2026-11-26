@@ -147,7 +147,7 @@ class AlertNotifier(
         builder(if (heard) HEARD else CHANNEL, style, open, quiet = line != null || problem != null)
             .apply {
               if (line == null) {
-                AskNotice.actionsOf(a.choices).forEachIndexed { i, act ->
+                AskNotice.actions.forEachIndexed { i, act ->
                   val back = Intent(context, AnswerReceiver::class.java).putExtra(AnswerReceiver.EXTRA_JOB, a.job).putExtra(AnswerReceiver.EXTRA_QUESTION, a.id)
                   when {
                     act.reply -> addAction(
@@ -326,14 +326,16 @@ class ReplyReceiver : BroadcastReceiver() {
   }
 }
 
-/** A job's question's buttons on its notification: its first two choices and Reply (which offers them all), or, with none, Reply and Go on without me. */
+/**
+ * A job's question's buttons on its notification: Reply, whose ready answers are its choices (Android
+ * draws them as chips, all of them, and the watch offers them too), and Go on without me. The
+ * choices are not buttons as well: they were shown twice.
+ */
 object AskNotice {
   /** A button: a choice's words to send ([text]), going on without ([skip]), or Reply ([reply]). */
   data class Act(val label: String, val text: String? = null, val skip: Boolean = false, val reply: Boolean = false)
 
-  fun actionsOf(choices: List<String>): List<Act> =
-      if (choices.isEmpty()) listOf(Act("Reply", reply = true), Act("Go on without me", skip = true))
-      else choices.take(2).map { Act(it, text = it) } + Act("Reply", reply = true)
+  val actions: List<Act> = listOf(Act("Reply", reply = true), Act("Go on without me", skip = true))
 }
 
 /**

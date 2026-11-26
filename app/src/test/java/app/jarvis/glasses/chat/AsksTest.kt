@@ -33,11 +33,8 @@ class AsksTest {
   }
 
   @Test
-  fun aQuestionsNotificationOffersTwoChoicesAndReplyOrGoingOnWithout() {
-    assertEquals(
-        listOf(AskNotice.Act("Phones only", text = "Phones only"), AskNotice.Act("Tablets too", text = "Tablets too"), AskNotice.Act("Reply", reply = true)),
-        AskNotice.actionsOf(listOf("Phones only", "Tablets too", "Either")),
-    )
-    assertEquals(listOf(AskNotice.Act("Reply", reply = true), AskNotice.Act("Go on without me", skip = true)), AskNotice.actionsOf(emptyList()))
+  fun aQuestionsNotificationOffersReplyWithItsChoicesAndGoingOnWithout() {
+    // Its choices are Reply's ready answers, drawn by Android: not buttons as well.
+    assertEquals(listOf(AskNotice.Act("Reply", reply = true), AskNotice.Act("Go on without me", skip = true)), AskNotice.actions)
   }
 }

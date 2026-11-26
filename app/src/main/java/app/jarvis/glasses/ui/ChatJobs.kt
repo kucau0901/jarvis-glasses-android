@@ -151,22 +151,33 @@ private fun Proposed(app: JarvisApp, ids: List<String>) {
  * Home is in front. A person's only.
  */
 @Composable
-fun NowStrip(app: JarvisApp) {
-  var asking by remember { mutableStateOf<List<app.jarvis.glasses.hub.Asking>>(emptyList()) }
-  var open by remember { mutableStateOf<List<Proposal>>(emptyList()) }
-  var allowed by remember { mutableStateOf<List<String>>(emptyList()) }
-  var tick by remember { mutableStateOf(0) }
-  Every(tick, ms = { 30_000L }) {
-    runCatching { app.hub.proposals() }.onSuccess { r -> asking = r.asking; open = r.open; allowed = r.allowed }
+fun rememberNow(app: JarvisApp): Now {
+  val now = remember { Now() }
+  Every(now.tick, ms = { 30_000L }) {
+    runCatching { app.hub.proposals() }.onSuccess { r -> now.asking = r.asking; now.open = r.open; now.allowed = r.allowed }
     true
   }
-  val total = asking.size + open.size
-  if (total == 0) return
+  return now
+}
+
+/** What Home's Now strip shows: read by [rememberNow], drawn by [NowStrip] only when anything waits, so an empty one takes no room. */
+class Now {
+  var asking by mutableStateOf<List<app.jarvis.glasses.hub.Asking>>(emptyList())
+  var open by mutableStateOf<List<Proposal>>(emptyList())
+  var allowed by mutableStateOf<List<String>>(emptyList())
+  var tick by mutableStateOf(0)
+
+  val total: Int
+    get() = asking.size + open.size
+}
+
+@Composable
+fun NowStrip(app: JarvisApp, now: Now) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     Text("Now", style = MaterialTheme.typography.titleMedium)
-    asking.take(MOST).forEach { a -> AskCard(app.hub, a.job, JobAsk(a.id, a.at, a.text, a.choices), tag = "${a.title} asks you", asks = app.asks) { tick++ } }
-    open.take((MOST - asking.size).coerceAtLeast(0)).forEach { p -> ProposalCard(app.hub, p, allowed) { tick++ } }
-    if (total > MOST) Text("${total - MOST} more in the Inbox", style = MaterialTheme.typography.bodySmall, color = Even.colors.dim)
+    now.asking.take(MOST).forEach { a -> AskCard(app.hub, a.job, JobAsk(a.id, a.at, a.text, a.choices), tag = "${a.title} asks you", asks = app.asks) { now.tick++ } }
+    now.open.take((MOST - now.asking.size).coerceAtLeast(0)).forEach { p -> ProposalCard(app.hub, p, now.allowed) { now.tick++ } }
+    if (now.total > MOST) Text("${now.total - MOST} more in the Inbox", style = MaterialTheme.typography.bodySmall, color = Even.colors.dim)
   }
 }
 

@@ -329,6 +329,8 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
   }
 
   // The title and the status panel stay put; the tiles scroll under them.
+  // Signed in as a person: what their jobs ask, and what waits for an OK.
+  val now = if (app.prefs.token.startsWith("jss1_")) rememberNow(app) else remember { Now() }
   Column(Modifier.fillMaxSize()) {
   Heading("Jarvis")
   StatusPanel(shownGlasses(known, headset), statusText(status, liveState), Modifier.padding(horizontal = Even.gutter))
@@ -343,6 +345,8 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(Even.gutter),
         userScrollEnabled = held == null,
     ) {
+      // What jobs ask and what waits for an OK, above the tiles, as the web's Now: only when anything waits, so the tiles keep their pairs.
+      if (now.total > 0) item(key = "now", span = { GridItemSpan(maxLineSpan) }) { NowStrip(app, now) }
       // As the web app's orb: Talk starts, and the same tile stops what is going.
       val talking = status != Talk.Status.IDLE || liveState != LiveVoice.State.OFF
       item(key = "talk") {
@@ -355,8 +359,6 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
           }
         }
       }
-      // What jobs ask and what waits for an OK, above everything else, as the web's Now.
-      if (app.prefs.token.startsWith("jss1_")) item(key = "now", span = { GridItemSpan(maxLineSpan) }) { NowStrip(app) }
       item(key = "jobs") { QuickTile(Glyphs.Jobs, "Jobs") { open(HomePage.JOBS) } }
       item(key = "routines") { QuickTile(Glyphs.Clock, "Routines") { open(HomePage.ROUTINES) } }
       item(key = "live") {
