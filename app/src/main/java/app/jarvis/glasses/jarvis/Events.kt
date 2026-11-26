@@ -87,6 +87,10 @@ data class Alert(
     val ask: AskRef? = null,
     /** The job whose result this is. */
     val job: String? = null,
+    /** What that job made, to save. */
+    val made: List<app.jarvis.glasses.hub.JobFile> = emptyList(),
+    /** What it proposed, by id: their cards go under it. */
+    val proposals: List<String> = emptyList(),
 ) {
   /** A job's question without its choices, and the choices it gave; empty for any other alert. */
   val question: String
@@ -120,6 +124,9 @@ data class Alert(
       return Alert(
           id, a.str("title") ?: "Jarvis", text, speak, a.bool("urgent") ?: false, a.bool("talk") ?: speak, a.str("source").orEmpty(), a.str("convo"), skill,
           look = a.bool("look") == true, ask = ask, job = a.str("job"),
+          made = (a["made"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { f -> (f as? JsonObject)?.let { o -> o.int("n")?.let { n -> app.jarvis.glasses.hub.JobFile(n, o.str("name").orEmpty(), (o["size"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull() ?: 0) } } },
+          // As cards' views ({id, …}), or their ids alone.
+          proposals = (a["proposals"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { p -> (p as? JsonObject)?.str("id") ?: (p as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull },
       )
     }
   }

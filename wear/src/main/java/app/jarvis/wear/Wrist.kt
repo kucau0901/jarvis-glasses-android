@@ -35,7 +35,8 @@ class Wrist(
     var pinned: List<String>
   }
 
-  data class Counts(val approvals: Int, val jobs: Int)
+  /** [asks]: questions from jobs, answered on the phone. */
+  data class Counts(val approvals: Int, val jobs: Int, val asks: Int = 0)
 
   private val _things = MutableStateFlow(keep.things?.let(WatchLink::decodeThings).orEmpty())
   val things: StateFlow<List<Thing>> = _things
@@ -80,7 +81,7 @@ class Wrist(
   suspend fun fetchCounts(): String? =
       when (val r = request(Fetch(newId(), Fetch.GLANCE))) {
         is Reply.Glance -> {
-          setCounts(Counts(r.approvals, r.jobs))
+          setCounts(Counts(r.approvals, r.jobs, r.asks))
           null
         }
         else -> why(r)

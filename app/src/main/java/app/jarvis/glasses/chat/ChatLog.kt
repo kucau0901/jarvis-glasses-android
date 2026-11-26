@@ -3,6 +3,7 @@ package app.jarvis.glasses.chat
 import app.jarvis.glasses.conversation.Memory
 import app.jarvis.glasses.hub.AlertFrom
 import app.jarvis.glasses.hub.MadePage
+import app.jarvis.glasses.hub.Named
 import app.jarvis.glasses.hub.Said
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.Turn
@@ -122,7 +123,7 @@ class ChatLog(
    */
   fun arrived(alert: Alert) = add(listOf(said(alert, now())))
 
-  private fun said(a: Alert, at: Long) = Said(a.id, at, "assistant", a.text, alert = AlertFrom(a.source, a.title), skill = a.skill, look = a.look, ask = a.ask)
+  private fun said(a: Alert, at: Long) = Said(a.id, at, "assistant", a.text, alert = AlertFrom(a.source, a.title), skill = a.skill, look = a.look, ask = a.ask, job = a.job?.let { Named(it, a.title) }, made = a.made, proposals = a.proposals)
 
   /** Emptied here and, signed in as a person, on every screen of theirs. */
   suspend fun clear() {

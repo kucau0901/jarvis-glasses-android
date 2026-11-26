@@ -53,7 +53,7 @@ class WatchRelay(
         when (m.what) {
           Fetch.HOME -> Reply.Home(m.id, w.home())
           Fetch.APPROVALS -> Reply.Approvals(m.id, w.approvals())
-          Fetch.GLANCE -> w.glance().let { (approvals, jobs) -> Reply.Glance(m.id, approvals, jobs) }
+          Fetch.GLANCE -> w.glance().let { g -> Reply.Glance(m.id, g.approvals, g.jobs, g.asks) }
           else -> Reply.Failed(m.id, OLDER)
         }
       }

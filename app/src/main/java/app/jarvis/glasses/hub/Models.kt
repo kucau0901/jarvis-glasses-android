@@ -190,6 +190,9 @@ data class Said(
     val page: MadePage? = null,
     /** A background job's question (src/worker/lib/conversation.ts there): quoted as the job's, never Jarvis's words. Only Jarvis says this. */
     val ask: AskRef? = null,
+    /** What the job this is the result of made, to save; and what it proposed, by id. Only Jarvis says these. */
+    val made: List<JobFile> = emptyList(),
+    val proposals: List<String> = emptyList(),
 ) {
   /** Whose words Chat shows it under: its routine's, job's or alert's name (a bot's, for a skill's); none for Jarvis's own. */
   val from: String?

@@ -51,6 +51,8 @@ fun WatchScreen(
     onFollowUps: (Boolean) -> Unit,
     approvals: Int,
     onTalk: () -> Unit,
+    /** Questions from jobs: answered on the phone, or by saying the answer here. */
+    asks: Int = 0,
     onSpeak: (Boolean) -> Unit,
     onHome: () -> Unit,
     onApprovals: () -> Unit,
@@ -114,6 +116,7 @@ fun WatchScreen(
           }
           item { Chip("Home", c.ink, c.tile, onHome) }
           item { Chip(if (approvals > 0) "Approvals · $approvals" else "Approvals", if (approvals > 0) c.tintWarm else c.ink, c.tile, onApprovals) }
+          if (asks > 0) item { Said(if (asks == 1) "A job asks you: answer on your phone, or say it" else "$asks jobs ask you: answer on your phone, or say it", c.tintWarm, 11) }
           item { Said(phoneLine(phone), c.dim, 11) }
         }
       }

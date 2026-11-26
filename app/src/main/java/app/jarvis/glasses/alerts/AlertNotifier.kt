@@ -13,7 +13,10 @@ import android.graphics.drawable.Icon
 import app.jarvis.glasses.MainActivity
 import app.jarvis.glasses.R
 import app.jarvis.glasses.chat.Markdown
+import app.jarvis.glasses.chat.Asks
 import app.jarvis.glasses.chat.ChatLog
+import app.jarvis.glasses.hub.answerJob
+import app.jarvis.glasses.hub.skipQuestion
 import app.jarvis.glasses.hub.Hub
 import app.jarvis.glasses.hub.Said
 import app.jarvis.glasses.jarvis
@@ -47,14 +50,25 @@ class AlertNotifier(
     private val hub: Hub,
     private val chat: ChatLog,
     private val scope: CoroutineScope,
+    private val asks: Asks = Asks(),
 ) {
   private val threads = Threads()
   private val messages = Messages()
+  // A job's question shown as a notification, by its key (Asks.key): its alert's id and title, question and choices.
+  private val asking = java.util.concurrent.ConcurrentHashMap<String, Asked>()
+
+  private data class Asked(val alert: String, val title: String, val question: String, val choices: List<String>, val job: String, val id: String)
   private val nm = context.getSystemService(NotificationManager::class.java)
   private val you = Person.Builder().setName("You").build()
   private val jarvis = Person.Builder().setName("Jarvis").setBot(true).build()
 
   init {
+    // Answered anywhere this phone has seen (a card in the app, another screen): its notification says so, once.
+    scope.launch {
+      asks.settled.collect { all ->
+        for ((key, said) in all) asking.remove(key)?.let { postAsk(it, line = said) }
+      }
+    }
     nm.createNotificationChannel(
         NotificationChannel(CHANNEL, "Jarvis's alerts", NotificationManager.IMPORTANCE_HIGH).apply {
           description = "What Jarvis tells you first: reminders, routines, home events, job results. Reply to answer Jarvis."
@@ -86,8 +100,76 @@ class AlertNotifier(
       return true
     }
     if (!canShow(if (said) HEARD else CHANNEL)) return false
+    val ask = alert.ask
+    if (ask != null) {
+      val a = Asked(alert.id, alert.title, alert.question, alert.choices, ask.job, ask.id)
+      asking[Asks.key(ask.job, ask.id)] = a
+      postAsk(a, heard = said)
+      return true
+    }
     post(alert.id, alert.title, threads.open(alert), threads.shown(alert.id, alert.text), working = false, quiet = false, heard = said)
     return true
+  }
+
+  /**
+   * A job's question answered from its notification: a choice, their words ([text]), or none to go on
+   * without. Sent to the job as it is, with no model asked; then the notification says what came of it,
+   * or why it was refused, with its buttons again.
+   */
+  suspend fun answer(job: String, id: String, text: String?) {
+    val a = asking[Asks.key(job, id)] ?: return
+    postAsk(a, line = "Sending…")
+    runCatching { if (text == null) hub.skipQuestion(job, id) else hub.answerJob(job, id, text) }
+        .onSuccess { asks.settle(job, id, if (text == null) "You chose to go on without an answer." else "You answered: $text") }
+        .onFailure { e ->
+          // Answered elsewhere meanwhile, or its job has ended: as it stands. Else why, to try again.
+          val j = runCatching { hub.job(job) }.getOrNull()
+          j?.let { asks.seen(it) }
+          if (asks.said(job, id) == null) postAsk(a, problem = e.message ?: "Not sent")
+        }
+  }
+
+  /** A job's question: its choices as buttons, Reply offering them too, or Go on without me ([AskNotice]); with [line], what came of it, and no buttons. */
+  private fun postAsk(a: Asked, line: String? = null, problem: String? = null, heard: Boolean = false) {
+    val style = Notification.MessagingStyle(you).setConversationTitle(a.title)
+    val now = System.currentTimeMillis()
+    style.addMessage(a.question + if (a.choices.isNotEmpty()) "\n" + a.choices.joinToString("\n") { "• $it" } else "", now, jarvis)
+    (line ?: problem)?.let { style.addMessage(it, now, if (line != null && line.startsWith("You")) null else jarvis) }
+    val code = a.alert.hashCode()
+    val open =
+        PendingIntent.getActivity(
+            context,
+            code,
+            Intent(context, MainActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.OPEN, MainActivity.OPEN_JOB).putExtra(MainActivity.OPEN_JOB_ID, a.job),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    val n =
+        builder(if (heard) HEARD else CHANNEL, style, open, quiet = line != null || problem != null)
+            .apply {
+              if (line == null) {
+                AskNotice.actions.forEachIndexed { i, act ->
+                  val back = Intent(context, AnswerReceiver::class.java).putExtra(AnswerReceiver.EXTRA_JOB, a.job).putExtra(AnswerReceiver.EXTRA_QUESTION, a.id)
+                  when {
+                    act.reply -> addAction(
+                        Notification.Action.Builder(Icon.createWithResource(context, android.R.drawable.ic_menu_send), act.label, PendingIntent.getBroadcast(context, code + 1 + i, back, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+                            .addRemoteInput(RemoteInput.Builder(KEY).setLabel("Your answer").setChoices(a.choices.toTypedArray()).build())
+                            .setSemanticAction(Notification.Action.SEMANTIC_ACTION_REPLY)
+                            .build(),
+                    )
+                    else -> addAction(
+                        Notification.Action.Builder(
+                                Icon.createWithResource(context, android.R.drawable.ic_menu_send),
+                                act.label,
+                                PendingIntent.getBroadcast(context, code + 1 + i, back.putExtra(AnswerReceiver.EXTRA_TEXT, act.text).putExtra(AnswerReceiver.EXTRA_SKIP, act.skip), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT),
+                            )
+                            .build(),
+                    )
+                  }
+                }
+              }
+            }
+            .build()
+    nm.notify(code, n)
   }
 
   /** The person replied under [id]'s notification: ask Jarvis, then show the answer there; [done] once it has. */
@@ -241,5 +323,48 @@ class ReplyReceiver : BroadcastReceiver() {
 
   private companion object {
     const val KEEP_MS = 50_000L
+  }
+}
+
+/**
+ * A job's question's buttons on its notification: Reply, whose ready answers are its choices (Android
+ * draws them as chips, all of them, and the watch offers them too), and Go on without me. The
+ * choices are not buttons as well: they were shown twice.
+ */
+object AskNotice {
+  /** A button: a choice's words to send ([text]), going on without ([skip]), or Reply ([reply]). */
+  data class Act(val label: String, val text: String? = null, val skip: Boolean = false, val reply: Boolean = false)
+
+  val actions: List<Act> = listOf(Act("Reply", reply = true), Act("Go on without me", skip = true))
+}
+
+/**
+ * A job's question answered from its notification ([AskNotice]): a choice, words typed or picked under
+ * Reply, or Go on without me, straight to the job. The app is kept up until it is sent (goAsync).
+ */
+class AnswerReceiver : BroadcastReceiver() {
+  override fun onReceive(context: Context, intent: Intent) {
+    val job = intent.getStringExtra(EXTRA_JOB) ?: return
+    val question = intent.getStringExtra(EXTRA_QUESTION) ?: return
+    val skip = intent.getBooleanExtra(EXTRA_SKIP, false)
+    val text = (RemoteInput.getResultsFromIntent(intent)?.getCharSequence(AlertNotifier.KEY)?.toString() ?: intent.getStringExtra(EXTRA_TEXT))?.trim()?.takeIf { it.isNotEmpty() }
+    if (!skip && text == null) return
+    val app = context.jarvis
+    val pending = goAsync()
+    app.scope.launch {
+      try {
+        kotlinx.coroutines.withTimeoutOrNull(KEEP_MS) { app.notifier.answer(job, question, if (skip) null else text) }
+      } finally {
+        pending.finish()
+      }
+    }
+  }
+
+  companion object {
+    const val EXTRA_JOB = "job"
+    const val EXTRA_QUESTION = "question"
+    const val EXTRA_TEXT = "text"
+    const val EXTRA_SKIP = "skip"
+    private const val KEEP_MS = 50_000L
   }
 }

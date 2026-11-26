@@ -219,4 +219,15 @@ class ChatLogTest {
     val two = listOf(Said("u000001", NOW, "user", "the match tonight"), Said("u000002", NOW, "user", "and tomorrow?"))
     assertEquals(listOf(Turn.user("the match tonight\nand tomorrow?")), ChatLog.transcript(two, emptySet(), NOW))
   }
+
+  @Test
+  fun aJobsResultIsInChatWithItsJobFilesAndCards() = runTest {
+    val log = log(Jarvis())
+    log.arrived(Alert("al00010", "Done: Expenses", "By month.", speak = false, urgent = false, source = "job", job = "j1", made = listOf(app.jarvis.glasses.hub.JobFile(1, "expenses.xlsx", 20480)), proposals = listOf("p1")))
+    advanceUntilIdle()
+    val s = log.said.value.single()
+    assertEquals(Named("j1", "Done: Expenses"), s.job)
+    assertEquals("expenses.xlsx", s.made.single().name)
+    assertEquals(listOf("p1"), s.proposals)
+  }
 }

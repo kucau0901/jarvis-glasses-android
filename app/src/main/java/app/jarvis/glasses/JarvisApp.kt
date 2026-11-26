@@ -54,6 +54,8 @@ class JarvisApp : Application() {
   lateinit var hub: Hub
   lateinit var admin: Admin
   lateinit var notifier: AlertNotifier
+  /** What came of jobs' questions this phone has seen settled, for every card and notification of one. */
+  val asks = app.jarvis.glasses.chat.Asks()
   lateinit var pairing: Pairing
   /** Even Realities G2 glasses, for alerts (Android 13 and later: the Bluetooth calls it makes). */
   var g2: G2Alerts? = null
@@ -85,7 +87,7 @@ class JarvisApp : Application() {
     // A bot's exchange with Jarvis, kept in the person's conversation: Chat reads it again, signed in as them.
     alerts = AlertSocket(client, scope, ::onAlert, ::openG2, onSaid = { scope.launch { runCatching { chat.refresh() } } })
     admin = Admin(client)
-    notifier = AlertNotifier(this, client, hub, chat, scope)
+    notifier = AlertNotifier(this, client, hub, chat, scope, asks)
     pairing = Pairing({ prefs.url }, { prefs.gatewayHeaders() }, client.http)
     places = Places(hub::places, { prefs.placesKept }, { prefs.placesKept = it }, changed = { fences.apply(it) })
     fences = Fences(this, on = { tellsPlaces }, places = { places.list.value })

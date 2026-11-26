@@ -244,8 +244,8 @@ sealed interface Reply {
 
   @Serializable @SerialName("approvals") data class Approvals(override val id: String, val open: List<Approval>) : Reply
 
-  /** Counts for the watch face: approvals waiting, jobs running. */
-  @Serializable @SerialName("glance") data class Glance(override val id: String, val approvals: Int, val jobs: Int) : Reply
+  /** Counts for the watch face: approvals waiting, jobs running, and questions from jobs (an older phone sends none). */
+  @Serializable @SerialName("glance") data class Glance(override val id: String, val approvals: Int, val jobs: Int, val asks: Int = 0) : Reply
 
   /** An [Act] or [Approve] done: what Jarvis said of it, when it said anything. */
   @Serializable @SerialName("acted") data class Acted(override val id: String, val text: String = "") : Reply

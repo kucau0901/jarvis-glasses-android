@@ -185,7 +185,7 @@ class WristTest {
                     else """{"open":[],"recent":[],"later":[]}""",
                 )
           }
-      assertEquals(0 to 1, HubWrist(hub).glance())
+      assertEquals(Glance(0, 1, 0), HubWrist(hub).glance())
     } finally {
       server.shutdown()
     }
