@@ -85,7 +85,7 @@ fun RoutinesScreen(app: JarvisApp, back: () -> Unit) {
           }) { Text(if (runsOf == r.id) "Hide past runs" else "Past runs") }
           if (runsOf == r.id) {
             if (runs.isEmpty()) Text("None yet.", style = MaterialTheme.typography.bodySmall, color = c.dim)
-            for (run in runs) Text("${JobWords.whenSaid(run.at)} · ${if (run.ok) "" else "failed: "}${run.detail}" + (run.said?.let { ": $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = if (run.ok) c.dim else c.danger, maxLines = 4)
+            for (run in runs) Text("${JobWords.atSaid(run.at)} · ${if (run.ok) "" else "failed: "}${run.detail}" + (run.said?.let { ": $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = if (run.ok) c.dim else c.danger, maxLines = 4)
           }
         }
       }

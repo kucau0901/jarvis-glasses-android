@@ -37,6 +37,7 @@ class JobWordsTest {
     assertNull(JobWords.waiting(Job("j1"), utc, Locale.UK))
     // A day that may be long ago is said in full.
     assertEquals("26 Nov 2026", JobWords.daySaid(at, utc, Locale.UK))
+    assertEquals("26 Nov, 15:20", JobWords.atSaid(at, utc, Locale.UK))
   }
 
   @Test
