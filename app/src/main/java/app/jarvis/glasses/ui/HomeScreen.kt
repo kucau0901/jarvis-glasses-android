@@ -152,10 +152,10 @@ private fun HomeMain(app: JarvisApp, hooks: Hooks, open: (HomePage) -> Unit) {
     if (!due(readings[at], now)) return
     readings[at] = Got(readings[at]?.reading, now)
     scope.launch {
-      val kept = runCatching { app.hub.read(panel.id, row.key, cached = true) }.getOrElse { if (it is CancellationException) throw it else failedReading(it.message) }
+      val kept = runCatching { app.hub.read(panel.id, row.key, cached = true) }.getOrElse { if (it is CancellationException) throw it else failedReading(it) }
       readings[at] = Got(shown(readings[at]?.reading, kept), now)
       if (!kept.stale || kept.failed) return@launch
-      val fresh = runCatching { app.hub.read(panel.id, row.key, cached = false) }.getOrElse { if (it is CancellationException) throw it else failedReading(it.message) }
+      val fresh = runCatching { app.hub.read(panel.id, row.key, cached = false) }.getOrElse { if (it is CancellationException) throw it else failedReading(it) }
       readings[at] = Got(shown(readings[at]?.reading, fresh), askedAt(fresh, System.currentTimeMillis()))
     }
   }
@@ -682,7 +682,7 @@ private fun ReadingView(row: PanelRow, reading: Reading?, hub: Hub) {
       }
     }
   }
-  infoLine(row.tool, row.every, row.refresh)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.dim) }
+  infoLine(row.tool, row.every, row.refresh, acts = reading?.acts == true)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.dim) }
 }
 
 /** Figures side by side, as the web's stat boxes: a small label, the value's first word large. */

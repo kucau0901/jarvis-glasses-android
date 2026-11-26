@@ -134,7 +134,9 @@ class MainActivity : ComponentActivity() {
     // Home has nowhere to go back to: Back closes the page over it, or stops listening and Jarvis talking.
     onBackPressedDispatcher.addCallback(this) {
       if (screen == Screen.SignIn) tv.stopPairing()
-      if (tv.browser) {
+      if (tv.video != null) {
+        tv.closeVideo()
+      } else if (tv.browser) {
         tv.closeBrowser()
       } else if (screen != Screen.Home) {
         screen = Screen.Home
@@ -168,6 +170,12 @@ class MainActivity : ComponentActivity() {
       }
       // The browser Jarvis handed over, over everything: to watch; a phone presses and types.
       if (tv.browser) BrowserView(tv::browserScreen, tv.answer.ifBlank { tv.working })
+      // A component's video, over everything: Back, or its end, takes it off.
+      tv.video?.let { v ->
+        Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+          app.jarvis.glasses.ui.VideoPlayer(v.sources, v.label, poster = null, Modifier.fillMaxWidth(), autoplay = true, end = tv::closeVideo)
+        }
+      }
     }
   }
 

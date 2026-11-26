@@ -33,6 +33,9 @@ class Hub(internal val client: JarvisClient) {
   /** Jarvis's 429: a device's minute or day used up. Asking again only spends more of it. */
   class TooMany : Exception("Too many requests just now")
 
+  /** Jarvis's 409, in its words: not as it was (answered elsewhere, changed), or a tile's tool that may do more than read. */
+  class Conflict(message: String) : java.io.IOException(message)
+
   suspend fun me(): Me = get("/api/hub/me")
 
   /**
@@ -297,6 +300,7 @@ class Hub(internal val client: JarvisClient) {
         when {
           res.isSuccessful -> text
           res.code == 423 -> throw Locked()
+          res.code == 409 -> throw Conflict(errorIn(text) ?: JarvisClient.errorOf(res.code, text))
           // "that is for a person, not a device"
           res.code == 403 && text.contains("for a person") -> throw NotAPerson()
           // A person's 403 says what it needs ("alerts are routines, which need …"), not a device's scopes.

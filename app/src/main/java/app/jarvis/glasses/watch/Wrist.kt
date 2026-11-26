@@ -43,7 +43,8 @@ class HubWrist(private val hub: Hub) : Wrist {
     val reads = readsOf(panels).take(MAX_READS)
     val readings = coroutineScope {
       // Each given a little while: one slow reading mustn't keep the watch from Home altogether.
-      reads.map { (p, r) -> async { withTimeoutOrNull(READ_MS) { runCatching { hub.read(p.id, r.key, cached = true) }.getOrNull() }?.let { "${p.id}/${r.key}" to it } } }.awaitAll()
+      // One Jarvis won't run with nobody pressing (409) says why, rather than standing blank.
+      reads.map { (p, r) -> async { withTimeoutOrNull(READ_MS) { runCatching { hub.read(p.id, r.key, cached = true) }.getOrElse { e -> if (e is Hub.Conflict) Reading(text = e.message.orEmpty(), failed = true, acts = true) else null } }?.let { "${p.id}/${r.key}" to it } } }.awaitAll()
     }
     return fitted(thingsOf(panels, readings.filterNotNull().toMap()))
   }

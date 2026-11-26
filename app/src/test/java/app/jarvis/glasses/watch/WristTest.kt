@@ -190,4 +190,22 @@ class WristTest {
       server.shutdown()
     }
   }
+
+  @Test
+  fun aTileJarvisWontReadWithNobodyPressingSaysWhyOnTheWrist() = kotlinx.coroutines.runBlocking {
+    val server = okhttp3.mockwebserver.MockWebServer()
+    server.start()
+    try {
+      val hub = app.jarvis.glasses.hub.Hub(app.jarvis.glasses.jarvis.JarvisClient({ server.url("/").toString() }, { "jss1_test" }, { emptyMap() }))
+      server.dispatcher =
+          object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) =
+                if (request.path.orEmpty().startsWith("/api/hub/panels/read")) okhttp3.mockwebserver.MockResponse().setResponseCode(409).setBody("""{"error":"It may do more than read"}""")
+                else okhttp3.mockwebserver.MockResponse().setBody("""{"panels":[{"id":"p_home","title":"Home","rows":[{"key":"music","kind":"tile","label":"Music","read":true,"tool":"music_play"}]}]}""")
+          }
+      assertEquals("It may do more than read", HubWrist(hub).home().single().status)
+    } finally {
+      server.shutdown()
+    }
+  }
 }

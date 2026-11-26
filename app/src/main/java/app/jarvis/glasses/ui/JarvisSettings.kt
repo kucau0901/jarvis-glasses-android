@@ -1,5 +1,8 @@
 package app.jarvis.glasses.ui
 
+import app.jarvis.glasses.hub.unlinkGoogle
+import app.jarvis.glasses.hub.googleAccounts
+import app.jarvis.glasses.hub.GoogleAccount
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -184,6 +187,7 @@ private fun GroupPage(app: JarvisApp, d: SettingsReply, g: GroupView, onData: (S
       }
     }
     if (g.id == "alerts") item { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { AlertsOverviewBlock(app) } }
+    if (g.id == "google" && g.linked == true) item { GoogleAccounts(app) }
     items(settings, key = { it.name }) { s ->
       Field(
           s,
@@ -256,7 +260,8 @@ private fun GroupPage(app: JarvisApp, d: SettingsReply, g: GroupView, onData: (S
                     }
                   },
               ) {
-                Text(if (linked) "Re-link" else "Link")
+                // Linking again with another Google account adds it to those linked.
+                Text(if (!linked) "Link" else if (g.id == "google") "Add another account" else "Re-link")
               }
             }
           }
@@ -320,6 +325,39 @@ private fun Field(s: SettingView, value: String, error: String?, onType: (String
             modifier = Modifier.clip(Even.corner).clickable(onClick = onClear).padding(vertical = 4.dp),
         )
       }
+    }
+  }
+}
+
+/** The Google accounts linked, each tried live by Jarvis, with what is wrong with one, and Unlink. */
+@Composable
+private fun GoogleAccounts(app: JarvisApp) {
+  val c = Even.colors
+  val scope = rememberCoroutineScope()
+  var accounts by remember { mutableStateOf<List<GoogleAccount>?>(null) }
+  var note by remember { mutableStateOf("") }
+  var tick by remember { mutableStateOf(0) }
+  LaunchedEffect(tick) { runCatching { app.hub.googleAccounts() }.onSuccess { accounts = it.accounts }.onFailure { note = it.message ?: "Couldn't read the accounts" } }
+  Tile(Modifier.fillMaxWidth()) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Text("Accounts linked", style = MaterialTheme.typography.titleMedium)
+      val list = accounts
+      if (list == null) Text(note.ifEmpty { "Trying each…" }, style = MaterialTheme.typography.bodySmall, color = c.dim)
+      else for (a in list) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Column(Modifier.weight(1f)) {
+            Text(a.account ?: "An account", style = MaterialTheme.typography.bodyMedium)
+            Text(if (a.working) "Working" else a.problem ?: "Not working", style = MaterialTheme.typography.bodySmall, color = if (a.working) c.on else c.danger)
+          }
+          Confirm("Unlink", "Unlink it?") {
+            scope.launch {
+              runCatching { app.hub.unlinkGoogle(a.id) }.onFailure { note = it.message ?: "Not unlinked" }
+              tick++
+            }
+          }
+        }
+      }
+      if (accounts != null && note.isNotEmpty()) Text(note, style = MaterialTheme.typography.bodySmall, color = c.danger)
     }
   }
 }

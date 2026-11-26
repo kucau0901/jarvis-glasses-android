@@ -75,6 +75,10 @@ class TvJarvis(context: Context, private val scope: CoroutineScope) {
   var browser by mutableStateOf(false)
     private set
 
+  /** A component's video, playing over everything, the largest first; Back or its end takes it off ([closeVideo]). */
+  var video by mutableStateOf<VoiceEvent.Display?>(null)
+    private set
+
   /**
    * A short line for what isn't an answer: a button's reply, a removal, something that went wrong.
    * Kept apart from the answer, so it never wipes one, and gone after a few seconds.
@@ -250,6 +254,7 @@ class TvJarvis(context: Context, private val scope: CoroutineScope) {
     answer = ""
     picture = null
     browser = false
+    video = null
     val context = recent()
     lateinit var me: Job
     me =
@@ -265,7 +270,11 @@ class TvJarvis(context: Context, private val scope: CoroutineScope) {
                 is VoiceEvent.Display ->
                     when (e.kind) {
                       "browser" -> browser = true
-                      "close" -> browser = false
+                      "video" -> video = e
+                      "close" -> {
+                        browser = false
+                        video = null
+                      }
                       else -> jarvis.pictureUrl(e)?.let { url -> scope.launch { load(url)?.let { if (asking === me) picture = it } } }
                     }
                 is VoiceEvent.Result -> {
@@ -310,7 +319,13 @@ class TvJarvis(context: Context, private val scope: CoroutineScope) {
     answer = ""
     picture = null
     browser = false
+    video = null
     notice = ""
+  }
+
+  /** Back, or its end, with a video up: it goes. */
+  fun closeVideo() {
+    video = null
   }
 
   /** Back, with the browser up: it goes, and Jarvis carries on. */

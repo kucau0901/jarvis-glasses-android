@@ -33,7 +33,8 @@ sealed interface VoiceEvent {
   /**
    * Something to show: a place ("map", "streetview": [lat], [lng], [maptype]), a camera ([entity]),
    * a picture Jarvis made ("image": [id]), a page it made ("page": [id]), the browser it works in
-   * handed over ("browser": nothing else comes with it), or "close" for whatever is up. Its picture
+   * handed over ("browser": nothing else comes with it), a component's video ("video": [sources]),
+   * or "close" for whatever is up. Its picture
    * comes from [Jarvis.pictureUrl]; the browser's, again and again, from [Jarvis.browserScreen].
    */
   data class Display(
@@ -44,6 +45,8 @@ sealed interface VoiceEvent {
       val maptype: String? = null,
       val entity: String? = null,
       val id: String? = null,
+      /** A component's video ("video"): its `https` addresses, largest first, as Jarvis lists them. */
+      val sources: List<String> = emptyList(),
   ) : VoiceEvent
 
   /** The answer's words. A failure ([error]) is still worth saying, and its audio may follow. */
@@ -90,6 +93,10 @@ sealed interface VoiceEvent {
         "image" -> o.str("image")?.takeIf { it.isNotBlank() }?.let { Display(kind, label, id = it) }
         "page" -> o.str("page")?.takeIf { it.isNotBlank() }?.let { Display(kind, label.ifEmpty { "Page" }, id = it) }
         "browser", "close" -> Display(kind, label)
+        "video" -> {
+          val all = (o["sources"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.contentOrNull }.filter { it.startsWith("https://") }.take(3)
+          if (all.isEmpty()) null else Display(kind, label, sources = all)
+        }
         else -> null
       }
     }

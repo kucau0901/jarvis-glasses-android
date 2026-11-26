@@ -70,6 +70,13 @@ sealed interface Shown {
    */
   data object Browser : Shown
 
+  /**
+   * A component's video: [sources] in the order the phone tries them, the smallest first (Jarvis
+   * lists them largest first), each an `https` address; [poster] a picture for before it plays;
+   * [label], the component's words, as text only. Fetched as they are, with nothing of Jarvis's.
+   */
+  data class Video(val sources: List<String>, val poster: String?, val label: String) : Shown
+
   /** "Close that": what is on the screen goes. */
   data object Close : Shown
 
@@ -95,6 +102,10 @@ sealed interface Shown {
         "image" -> o.str("image")?.takeIf { it.isNotBlank() }?.let { Picture(it, label) }
         "page" -> o.str("page")?.takeIf { it.isNotBlank() }?.let { Page(it, label.ifEmpty { "Page" }) }
         "browser" -> Browser
+        "video" -> {
+          val all = (o["sources"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.contentOrNull }.filter { it.startsWith("https://") }.take(3)
+          if (all.isEmpty()) null else Video(all.takeLast(1) + all.dropLast(1), o.str("poster")?.takeIf { it.startsWith("https://") }, label)
+        }
         "close" -> Close
         else -> null
       }

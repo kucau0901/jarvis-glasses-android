@@ -365,6 +365,13 @@ class JarvisTest {
     reply("""{"error":"nope"}""", code = 500)
     jarvis.remember("a", "b") // swallowed
   }
+
+  @Test
+  fun aComponentsVideoIsADisplayWithItsHttpsSourcesLargestFirst() {
+    val shown = VoiceEvent.from(Json.parseToJsonElement("""{"type":"display","kind":"video","label":"Garden cam","sources":["https://cam.example.com/1080.mp4","http://cam.example.com/x.mp4","https://cam.example.com/480.mp4"]}""").jsonObject)
+    assertEquals(VoiceEvent.Display("video", "Garden cam", sources = listOf("https://cam.example.com/1080.mp4", "https://cam.example.com/480.mp4")), shown)
+    assertNull(VoiceEvent.from(Json.parseToJsonElement("""{"type":"display","kind":"video","sources":[]}""").jsonObject))
+  }
 }
 
 /** SharedPreferences in memory, for [TvPrefs] off a device. */

@@ -40,4 +40,14 @@ class StepsTest {
     w.note("still looking", null)
     assertEquals("Still looking", w.thinking)
   }
+
+  @Test
+  fun everyToolJarvisHasNowHasItsWordsAndControlHomeIsGone() {
+    assertEquals("Telling the job", Steps.doing("job_control"))
+    assertEquals("Changing your calendar", Steps.doing("calendar_change"))
+    assertEquals("Checking the time", Steps.doing("time_in"))
+    assertEquals("Asking you", Steps.doing("ask_person"))
+    assertEquals("Signing in", Steps.doing("browser_sign_in"))
+    assertEquals("Working", Steps.doing("control_home"))
+  }
 }

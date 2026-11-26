@@ -49,7 +49,10 @@ internal fun shown(old: Reading?, new: Reading): Reading? =
 internal fun askedAt(new: Reading, now: Long): Long = if (new.pending) now - READ_MS + SOON_MS else now
 
 /** A reading that could not be had, saying why. */
-internal fun failedReading(why: String?): Reading = Reading(text = why ?: "Could not read it just now", failed = true)
+internal fun failedReading(why: String?, acts: Boolean = false): Reading = Reading(text = why ?: "Could not read it just now", failed = true, acts = acts)
+
+/** A reading that could not be had, from what went wrong: Jarvis's 409 is a tool that may do more than read ([Reading.acts]). */
+internal fun failedReading(e: Throwable): Reading = failedReading(e.message, acts = e is app.jarvis.glasses.hub.Hub.Conflict)
 
 /** "Checked 9:25 PM", from when it was looked up. */
 internal fun checkedAt(at: Long, zone: ZoneId = ZoneId.systemDefault()): String =
@@ -58,9 +61,13 @@ internal fun checkedAt(at: Long, zone: ZoneId = ZoneId.systemDefault()): String 
 /** "hour", "day", "3 hours", "90 minutes": how often one Jarvis looks up is looked up again (shared/panels.ts everyWords). */
 internal fun everyWords(m: Int): String = if (m == 60) "hour" else if (m == 1440) "day" else if (m % 60 != 0) "$m minutes" else "${m / 60} hours"
 
-/** Where a reading comes from, for its sheet: the tool read each time, or how often Jarvis looks it up. */
-internal fun infoLine(tool: String?, every: Int?, refresh: Boolean): String? =
+/**
+ * Where a reading comes from, for its sheet: the tool read each time, or how often Jarvis looks it
+ * up; or, refused for a tool that may do more than read ([acts]), that Home does not run it.
+ */
+internal fun infoLine(tool: String?, every: Int?, refresh: Boolean, acts: Boolean = false): String? =
     when {
+      acts -> "Not run by Home: it may do more than read, so it belongs on a button"
       tool != null -> "Reads ${tool.replace('_', ' ')} each minute while Home is open"
       every != null -> "Looked up every ${everyWords(every)}" + if (refresh) ", even with Home closed" else ""
       else -> null
