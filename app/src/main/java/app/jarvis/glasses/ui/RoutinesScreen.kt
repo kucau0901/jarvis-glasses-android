@@ -26,7 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.jarvis.glasses.JarvisApp
+import app.jarvis.glasses.hub.JobWords
 import app.jarvis.glasses.hub.Routine
+import app.jarvis.glasses.hub.routineRuns
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -41,9 +43,11 @@ fun RoutinesScreen(app: JarvisApp, back: () -> Unit) {
   // Why Jarvis refused a switch or a run, by routine: a last day past, say.
   var refused by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
   var tick by remember { mutableStateOf(0) }
-  var name by remember { mutableStateOf("") }
-  var time by remember { mutableStateOf("07:30") }
-  var text by remember { mutableStateOf("") }
+  var me by remember { mutableStateOf<app.jarvis.glasses.hub.Me?>(null) }
+  // Whose past runs are open, and what they were.
+  var runsOf by remember { mutableStateOf<String?>(null) }
+  var runs by remember { mutableStateOf<List<app.jarvis.glasses.hub.RoutineRun>>(emptyList()) }
+  LaunchedEffect(Unit) { me = runCatching { app.hub.me() }.getOrNull() }
   LaunchedEffect(tick) {
     runCatching { app.hub.routines() }.onSuccess { routines = it; note = "" }.onFailure { note = it.message ?: "Couldn't read routines" }
   }
@@ -75,29 +79,17 @@ fun RoutinesScreen(app: JarvisApp, back: () -> Unit) {
               tick++
             }
           }) { Text("Run now") }
-        }
-      }
-    }
-    item {
-      Tile(Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          Text("New daily routine", style = MaterialTheme.typography.titleMedium)
-          OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-          OutlinedTextField(time, { time = it }, label = { Text("Time (HH:MM)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-          OutlinedTextField(text, { text = it }, label = { Text("Ask Jarvis (e.g. brief me on today)") }, modifier = Modifier.fillMaxWidth())
-          OutlinedButton(
-              enabled = name.isNotBlank() && text.isNotBlank() && Regex("\\d{1,2}:\\d{2}").matches(time),
-              onClick = {
-                scope.launch {
-                  runCatching { app.hub.addDaily(name, time, text, ask = true) }.onFailure { note = it.message ?: "" }.onSuccess { name = ""; text = "" }
-                  tick++
-                }
-              },
-          ) {
-            Text("Add")
+          OutlinedButton(onClick = {
+            if (runsOf == r.id) runsOf = null
+            else scope.launch { runs = runCatching { app.hub.routineRuns(r.id) }.getOrDefault(emptyList()); runsOf = r.id }
+          }) { Text(if (runsOf == r.id) "Hide past runs" else "Past runs") }
+          if (runsOf == r.id) {
+            if (runs.isEmpty()) Text("None yet.", style = MaterialTheme.typography.bodySmall, color = c.dim)
+            for (run in runs) Text("${JobWords.atSaid(run.at)} · ${if (run.ok) "" else "failed: "}${run.detail}" + (run.said?.let { ": $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = if (run.ok) c.dim else c.danger, maxLines = 4)
           }
         }
       }
     }
+    item { RoutineForm(app, family = me?.can("routines") == true) { tick++ } }
   }
 }
