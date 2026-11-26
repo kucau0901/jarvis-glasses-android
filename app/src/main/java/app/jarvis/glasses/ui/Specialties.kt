@@ -53,6 +53,9 @@ fun WayForm(hub: Hub, start: WayDraft, mayFiles: Boolean, done: (saved: Boolean)
   val c = Even.colors
   val scope = rememberCoroutineScope()
   var d by remember(start) { mutableStateOf(start) }
+  // The lists as typed, split into lines only when saved: split as they are typed, a space or a new line just typed would go.
+  var whenTyped by remember(start) { mutableStateOf(start.`when`.joinToString("\n")) }
+  var stepsTyped by remember(start) { mutableStateOf(start.steps.joinToString("\n")) }
   var problem by remember(start) { mutableStateOf("") }
   var busy by remember(start) { mutableStateOf(false) }
   // Changing one kept already: what it holds besides (its notes, its files) stays with it.
@@ -71,8 +74,8 @@ fun WayForm(hub: Hub, start: WayDraft, mayFiles: Boolean, done: (saved: Boolean)
       Text(if (d.id != null) "Change it" else "New specialty", style = MaterialTheme.typography.titleMedium)
       for (n in d.notes) Text(n, style = MaterialTheme.typography.bodySmall, color = c.dim)
       OutlinedTextField(d.name, { d = d.copy(name = it) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-      OutlinedTextField(d.`when`.joinToString("\n"), { d = d.copy(`when` = lines(it)) }, label = { Text("When to use it, a line each") }, modifier = Modifier.fillMaxWidth())
-      OutlinedTextField(d.steps.joinToString("\n"), { d = d.copy(steps = lines(it)) }, label = { Text("Steps, a line each") }, modifier = Modifier.fillMaxWidth())
+      OutlinedTextField(whenTyped, { whenTyped = it }, label = { Text("When to use it, a line each") }, modifier = Modifier.fillMaxWidth())
+      OutlinedTextField(stepsTyped, { stepsTyped = it }, label = { Text("Steps, a line each") }, modifier = Modifier.fillMaxWidth())
       OutlinedTextField(d.text, { d = d.copy(text = it) }, label = { Text("Notes: pitfalls, examples (background jobs read these)") }, modifier = Modifier.fillMaxWidth())
       OutlinedTextField(d.why, { d = d.copy(why = it) }, label = { Text("Why, if it helps") }, modifier = Modifier.fillMaxWidth())
       if (mayFiles || d.kept.isNotEmpty() || d.added.isNotEmpty()) {
@@ -95,7 +98,7 @@ fun WayForm(hub: Hub, start: WayDraft, mayFiles: Boolean, done: (saved: Boolean)
               problem = ""
               scope.launch {
                 runCatching {
-                      hub.saveWay(d)
+                      hub.saveWay(d.copy(`when` = lines(whenTyped), steps = lines(stepsTyped)))
                       // What the card would have kept is kept, as they changed it: the card is settled.
                       d.card?.let { runCatching { hub.answer(it, "decline") } }
                     }

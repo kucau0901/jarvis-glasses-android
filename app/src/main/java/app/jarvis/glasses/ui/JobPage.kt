@@ -65,7 +65,8 @@ fun JobPage(app: JarvisApp, first: Job, back: () -> Unit, again: (NewJob) -> Uni
   var note by remember(first.id) { mutableStateOf("") }
   var bad by remember(first.id) { mutableStateOf(false) }
   var telling by rememberSaveable(first.id) { mutableStateOf("") }
-  var changing by remember(first.id) { mutableStateOf<JobCard?>(null) }
+  // Its card being changed, as typed: the lists split into lines only when saved, so a space or a new line just typed stays.
+  var changing by remember(first.id) { mutableStateOf<Triple<String, String, String>?>(null) }
   // How it was done, being read over to keep (Keep for next time).
   var keeping by remember(first.id) { mutableStateOf<app.jarvis.glasses.hub.WayDraft?>(null) }
 
@@ -116,15 +117,15 @@ fun JobPage(app: JarvisApp, first: Job, back: () -> Unit, again: (NewJob) -> Uni
               if (card.limits.isNotEmpty()) Text("Keeping to: " + card.limits.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
               if (card.assumptions.isNotEmpty()) Text("Assuming: " + card.assumptions.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
               if (running) Text(JobWords.powers(j), style = MaterialTheme.typography.bodySmall, color = c.dim)
-              if (hears) OutlinedButton(onClick = { changing = card }) { Text("Change") }
+              if (hears) OutlinedButton(onClick = { changing = Triple(card.outcome, card.limits.joinToString("\n"), card.assumptions.joinToString("\n")) }) { Text("Change") }
             } else {
-              OutlinedTextField(typed.outcome, { changing = typed.copy(outcome = it) }, label = { Text("What it comes to") }, modifier = Modifier.fillMaxWidth())
-              OutlinedTextField(typed.limits.joinToString("\n"), { changing = typed.copy(limits = lines(it)) }, label = { Text("What it keeps to, a line each") }, modifier = Modifier.fillMaxWidth())
-              OutlinedTextField(typed.assumptions.joinToString("\n"), { changing = typed.copy(assumptions = lines(it)) }, label = { Text("What it assumes, a line each") }, modifier = Modifier.fillMaxWidth())
+              OutlinedTextField(typed.first, { changing = typed.copy(first = it) }, label = { Text("What it comes to") }, modifier = Modifier.fillMaxWidth())
+              OutlinedTextField(typed.second, { changing = typed.copy(second = it) }, label = { Text("What it keeps to, a line each") }, modifier = Modifier.fillMaxWidth())
+              OutlinedTextField(typed.third, { changing = typed.copy(third = it) }, label = { Text("What it assumes, a line each") }, modifier = Modifier.fillMaxWidth())
               Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
                   changing = null
-                  press("Told: it goes on from there at its next step.") { app.hub.changeCard(j.id, typed) }
+                  press("Told: it goes on from there at its next step.") { app.hub.changeCard(j.id, JobCard(typed.first.trim(), lines(typed.second), lines(typed.third))) }
                 }) { Text("Save") }
                 OutlinedButton(onClick = { changing = null }) { Text("Cancel") }
               }

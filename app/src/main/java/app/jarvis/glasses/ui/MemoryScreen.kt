@@ -91,7 +91,7 @@ fun MemoryScreen(app: JarvisApp, back: () -> Unit, start: WayDraft? = null) {
           Tile(Modifier.fillMaxWidth(), onClick = { opened = w.id }) {
             Column {
               Text(w.name, style = MaterialTheme.typography.bodyMedium)
-              Text("${w.steps.size} steps" + (if (w.files.isNotEmpty()) " · ${w.files.size} files" else "") + (if (w.before > 0) " · changed ${w.before} times" else ""), style = MaterialTheme.typography.bodySmall, color = c.dim)
+              Text("${w.steps.size} steps" + (if (w.files.isNotEmpty()) " · ${w.files.size} files" else "") + (if (w.before == 1) " · changed once" else if (w.before > 1) " · changed ${w.before} times" else ""), style = MaterialTheme.typography.bodySmall, color = c.dim)
             }
           }
     }

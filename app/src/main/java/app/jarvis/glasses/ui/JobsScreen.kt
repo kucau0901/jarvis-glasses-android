@@ -52,8 +52,10 @@ fun JobsScreen(app: JarvisApp, back: () -> Unit, open: String? = null) {
   var tick by remember { mutableStateOf(0) }
   // Projects and Sites, each a page of Jobs.
   var page by remember { mutableStateOf("") }
-  LaunchedEffect(Unit) {
-    val m = runCatching { app.hub.me() }.getOrNull()
+  // Read again each time the list is back in front: a project or specialty made in Projects or Memory is offered at once.
+  LaunchedEffect(page) {
+    if (page.isNotEmpty()) return@LaunchedEffect
+    val m = me ?: runCatching { app.hub.me() }.getOrNull()
     me = m
     if (m?.can("memory.read") == true) {
       specialties = runCatching { app.hub.specialtyNames() }.getOrDefault(emptyList())
