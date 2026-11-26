@@ -132,6 +132,25 @@ object Phrases {
    */
   fun isStop(heard: String, keep: List<String> = emptyList()): Boolean = normalise(heard).let { it in STOP && !chosen(it, keep) }
 
+  /** The one of [choices] that [heard] is, as said ("no thanks." for "No thanks"); null when it is none of them. */
+  fun choiceOf(heard: String, choices: List<String>): String? = normalise(heard).let { h -> choices.firstOrNull { normalise(it) == h } }
+
+  private val SKIP =
+      setOf(
+          "go on without me",
+          "carry on without me",
+          "skip it",
+          "skip that",
+          "skip",
+          // Malay
+          "teruskan",
+          "teruskan tanpa saya",
+          "langkau",
+      )
+
+  /** Going on without answering a job's question: only a short utterance that is wholly that. */
+  fun isSkip(heard: String): Boolean = normalise(heard) in SKIP
+
   /** Whether [heard], normalised, is one of [choices]. */
   private fun chosen(heard: String, choices: List<String>) = choices.any { normalise(it) == heard }
 

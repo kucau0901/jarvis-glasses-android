@@ -185,4 +185,12 @@ class EventsTest {
     assertEquals(listOf(app.jarvis.glasses.hub.JobFile(1, "expenses.xlsx", 20480)), a.made)
     assertEquals(listOf("p1", "p2"), a.proposals)
   }
+
+  @Test
+  fun aQuestionIsSaidAsTheJobsWithItsChoicesAndAResultsFilesAsOnThePhone() {
+    val ask = Alert("al1", "A question: Dashcams", "Under RM800 only?\n\n- Yes\n- No thanks", speak = true, urgent = false, source = "job", ask = app.jarvis.glasses.hub.AskRef("j1", "q1"))
+    assertEquals("Your background job asks, about Dashcams. Under RM800 only? Yes, No thanks. Say one of those, or go on without me.", ask.said)
+    val done = Alert("al2", "Done: Expenses", "By month.\n\nIn Jobs to download: expenses.xlsx", speak = true, urgent = false, source = "job", job = "j1", made = listOf(app.jarvis.glasses.hub.JobFile(1, "expenses.xlsx", 10)))
+    assertEquals("Done: Expenses: By month. It made a file, in Jobs on your phone.", done.said)
+  }
 }

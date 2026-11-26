@@ -4,11 +4,12 @@ package app.jarvis.glasses.g2
 enum class G2Choice(val label: String, val on: String, val off: String) {
   CHAT("Chat", "▶", "▷"),
   ALERTS("Alerts", "★", "☆"),
+  JOBS("Jobs", "●", "○"),
   CLOSE("Close", "■", "□"),
 }
 
 /**
- * Jarvis's own screen on the G2, opened by asking for it ("open Jarvis"): three tiles side by side
+ * Jarvis's own screen on the G2, opened by asking for it ("open Jarvis"): four tiles side by side
  * under a top line with the battery and the time, the chosen one framed thick and bright, moved
  * with a swipe on the ring or touchpad and opened with a tap. Alerts arriving meanwhile are
  * counted on theirs.
@@ -23,6 +24,10 @@ class G2Menu(private val clock: () -> String = ::g2Clock) {
 
   /** Alerts that arrived while the menu was up, not looked at yet. */
   var unseen = 0
+
+  /** What waits for the wearer (jobs' questions and approvals), and jobs at work, once read. */
+  var waiting = 0
+  var working = 0
 
   /** The glasses' battery, 0–100, once they have said it. */
   var battery: Int? = null
@@ -42,7 +47,8 @@ class G2Menu(private val clock: () -> String = ::g2Clock) {
   fun note(c: G2Choice): String =
       when (c) {
         G2Choice.CHAT -> "Talk to Jarvis"
-        G2Choice.ALERTS -> if (unseen > 0) "$unseen new" else "Latest"
+        G2Choice.ALERTS -> listOfNotNull(unseen.takeIf { it > 0 }?.let { "$it new" }, waiting.takeIf { it > 0 }?.let { "$it wait" }).joinToString(", ").ifEmpty { "Latest" }
+        G2Choice.JOBS -> if (working > 0) "$working at work" else "None at work"
         G2Choice.CLOSE -> "Back to Even"
       }
 
@@ -57,13 +63,14 @@ class G2Menu(private val clock: () -> String = ::g2Clock) {
           G2Box(3 + i, i * (TILE_W + GAP), 46, TILE_W, 190, "${if (chosen) c.on else c.off}  ${c.label}\n\n${note(c)}",
               border = if (chosen) 3 else 1, shade = if (chosen) 15 else 5, padding = 14)
         }
-    val bottom = G2Box(6, 8, 248, EvenHub.WIDTH - 16, 40, "▲▼  swipe: choose        tap: open")
+    // After the tiles' ids: each box's id once on a page.
+    val bottom = G2Box(3 + choices.size, 8, 248, EvenHub.WIDTH - 16, 40, "▲▼  swipe: choose        tap: open")
     return top + tiles + bottom
   }
 
   private companion object {
-    /** Three tiles and the two gaps between them fill the display's width. */
-    const val GAP = 12
-    const val TILE_W = (EvenHub.WIDTH - 2 * GAP) / 3
+    /** Four tiles and the three gaps between them fill the display's width. */
+    const val GAP = 8
+    const val TILE_W = (EvenHub.WIDTH - 3 * GAP) / 4
   }
 }

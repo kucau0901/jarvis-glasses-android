@@ -9,6 +9,8 @@ import app.jarvis.glasses.conversation.Memory
 import app.jarvis.glasses.conversation.Mouth
 import app.jarvis.glasses.conversation.Phrases
 import app.jarvis.glasses.hub.Said
+import app.jarvis.glasses.hub.needsPhone
+import app.jarvis.glasses.hub.stateWords
 import app.jarvis.glasses.jarvis.Alert
 import app.jarvis.glasses.jarvis.JarvisClient
 import app.jarvis.glasses.jarvis.Turn
@@ -41,10 +43,14 @@ class G2Alerts(
     private val said: StateFlow<List<Said>>,
     /** Chat's conversation read again from Jarvis: what the person's other screens said. */
     private val refresh: suspend () -> Unit,
+    /** Jobs and approvals, for its Jobs page; a job's question answered by a tap, straight to the job. */
+    private val hub: app.jarvis.glasses.hub.Hub? = null,
+    private val answerJob: app.jarvis.glasses.conversation.AnswerJob? = null,
+    private val asks: app.jarvis.glasses.chat.Asks? = null,
 ) {
   private val chat = G2Chat(link::show)
   private val ears = G2Ears(link, chat)
-  private val conversation = Conversation(scope, ears, Lens(chat), { null }, ShownBrain(client, chat), memory, followUps)
+  private val conversation = Conversation(scope, ears, Lens(chat), { null }, ShownBrain(client, chat), memory, followUps, answerJob)
   private var job: Job? = null
   /** The menu while it is on the glasses: an alert arriving is counted on it. */
   private var menu: G2Menu? = null
@@ -61,14 +67,26 @@ class G2Alerts(
         Log.w(TAG, "the G2 couldn't be signed in to; the alert goes to a notification")
         unseen(alert)
       }) {
-        chat.open()
-        converse(alert)
+        // A job's question: its own page, its choices tapped; else Jarvis's chat, and a tap to reply.
+        if (alert.ask != null && answerJob != null) answer(alert)
+        else {
+          chat.open()
+          converse(alert)
+        }
       }
 
   /** Jarvis's own screen on the glasses ([G2Menu]), unless they can't be reached ([canShow]). */
   fun openMenu(): Boolean =
       session({ Log.w(TAG, "the G2 couldn't be signed in to; its menu isn't shown") }) {
         val menu = G2Menu()
+        // What waits, and what is at work, on its tiles: read once as it opens.
+        hub?.let { h ->
+          launch {
+            runCatching { h.proposals() }.onSuccess { menu.waiting = it.asking.size + it.open.size }
+            runCatching { h.jobs() }.onSuccess { js -> menu.working = js.count { it.status == "running" } }
+            if (this@G2Alerts.menu === menu) link.show(menu.page())
+          }
+        }
         // The battery as the glasses tell it, a moment after signing in: on the menu as it comes.
         val battery = launch {
           link.glasses.collect { g ->
@@ -86,6 +104,7 @@ class G2Alerts(
               chat.open(leave = BACK)
               if (!converse(null)) break
             }
+            G2Choice.JOBS -> if (!work()) break
             G2Choice.ALERTS -> {
               menu.unseen = 0
               chat.open(only = { it.g2Alert }, leave = BACK)
@@ -145,6 +164,114 @@ class G2Alerts(
           }
         }
     return true
+  }
+
+  /**
+   * A job's question on its own page ([G2Ask]): a choice or Go on without me tapped is sent to the job
+   * as it is; Say it opens the microphone, and Jarvis hears the answer. Answered elsewhere meanwhile,
+   * it says so. False when it was left alone, which leaves the question for the phone.
+   */
+  private suspend fun answer(alert: Alert): Boolean {
+    val ask = alert.ask ?: return false
+    val page = G2Ask(alert.title, alert.question, alert.choices)
+    while (true) {
+      asks?.said(ask.job, ask.id)?.let {
+        link.show(page.page(it))
+        withTimeoutOrNull(SHOWN_MS) { link.touches.first() }
+        return true
+      }
+      link.show(page.page())
+      when (withTimeoutOrNull(WAIT_MS) { link.touches.first { it != G2Touch.DOUBLE_TAP } }) {
+        null, G2Touch.CLOSED -> return false
+        G2Touch.UP -> page.up()
+        G2Touch.DOWN -> page.down()
+        G2Touch.TAP ->
+            when (val c = page.chosen) {
+              G2Ask.SAY -> {
+                chat.open()
+                return converse(alert, tapped = true)
+              }
+              else -> {
+                val text = c.takeIf { it != G2Ask.SKIP }
+                val told = answerJob?.answer(ask.job, ask.id, text) == true
+                link.show(page.page(if (!told) "Could not tell it: answer it on your phone." else if (text == null) "Told it to go on without you." else "Told it: $text"))
+                withTimeoutOrNull(SHOWN_MS) { link.touches.first() }
+                return true
+              }
+            }
+        G2Touch.DOUBLE_TAP -> Unit
+      }
+    }
+  }
+
+  /**
+   * Jarvis's Jobs page ([G2Work]): what waits for an OK and the jobs at work, read again every few
+   * seconds while it is up. True when left for the menu (a double tap), false when closed or left alone.
+   */
+  private suspend fun work(): Boolean {
+    val h = hub ?: return true
+    suspend fun read() = G2Work(runCatching { h.proposals().open }.getOrDefault(emptyList()), runCatching { h.jobs().filter { it.status == "running" } }.getOrDefault(emptyList()))
+    var w = read()
+    var note: String? = null
+    var idle = 0L
+    while (true) {
+      link.show(w.page(note))
+      val touch = withTimeoutOrNull(REREAD_MS) { link.touches.first() }
+      if (touch == null) {
+        idle += REREAD_MS
+        if (idle >= WAIT_MS) return false
+        // Not while a tap has armed an approval: the second tap is for that one.
+        if (!w.armed) w = read()
+        continue
+      }
+      idle = 0
+      note = null
+      when (touch) {
+        G2Touch.CLOSED -> return false
+        G2Touch.DOUBLE_TAP -> return true
+        G2Touch.UP -> w.up()
+        G2Touch.DOWN -> w.down()
+        G2Touch.TAP ->
+            when (val c = w.chosen) {
+              is app.jarvis.glasses.hub.Proposal ->
+                  if (w.tapOk()) note = runCatching { h.answer(c.id, "approve").stateWords() }.getOrElse { it.message ?: "Not done" }
+                  else if (c.needsPhone) note = "Read it on your phone to approve it."
+              is app.jarvis.glasses.hub.Job -> if (!job(h, c)) return false
+              else -> return true
+            }
+      }
+    }
+  }
+
+  /** One job's page: a tap arms Stop, a second stops it; a swipe goes back. False when closed or left alone. */
+  private suspend fun job(h: app.jarvis.glasses.hub.Hub, first: app.jarvis.glasses.hub.Job): Boolean {
+    var j = first
+    var armed = false
+    var note: String? = null
+    var idle = 0L
+    while (true) {
+      link.show(G2Work.jobPage(j, armed, note))
+      val touch = withTimeoutOrNull(REREAD_MS) { link.touches.first() }
+      if (touch == null) {
+        idle += REREAD_MS
+        if (idle >= WAIT_MS) return false
+        runCatching { h.job(j.id) }.onSuccess { j = it }
+        continue
+      }
+      idle = 0
+      when (touch) {
+        G2Touch.CLOSED -> return false
+        G2Touch.UP, G2Touch.DOWN, G2Touch.DOUBLE_TAP -> return true
+        G2Touch.TAP ->
+            if (j.status != "running") return true
+            else if (!armed) armed = true
+            else {
+              armed = false
+              note = runCatching { h.cancelJob(j.id) }.fold({ "Stopped." }, { it.message ?: "Not stopped" })
+              runCatching { h.job(j.id) }.onSuccess { j = it }
+            }
+      }
+    }
   }
 
   /** The menu until something is chosen with a tap; null when it is closed or left alone. */
@@ -230,6 +357,10 @@ class G2Alerts(
     private const val TAG = "G2"
     /** How long the menu waits for the wearer, as an alert does (G2Ears). */
     const val WAIT_MS = 60_000L
+    /** How long what came of an answer stays up, a tap taking it off sooner. */
+    const val SHOWN_MS = 4_000L
+    /** How often the Jobs page is read again while it is up. */
+    const val REREAD_MS = 5_000L
     /** The longest answer asked for: about four screens of the chat, read by scrolling. */
     const val CHARS = 1_200
     /** What leaving the chat does when the menu opened it. */

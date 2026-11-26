@@ -99,9 +99,19 @@ data class Alert(
   val choices: List<String>
     get() = if (ask != null) JobWords.askOf(text).second else emptyList()
 
-  /** How it reads, and is said: "Title: text", as the web app has it; just the text under "Jarvis". */
+  /**
+   * How it reads, and is said: "Title: text", as the web app has it; just the text under "Jarvis". A
+   * job's question whose it is first, its choices said as a list to pick from, never run together; a
+   * result's files said to be on the phone, not listed.
+   */
   val said: String
-    get() = if (title == "Jarvis") text else "$title: $text"
+    get() =
+        when {
+          ask != null -> JobWords.askSaid(title, text) + " " + (if (choices.isEmpty()) "Answer it, or say go on without me." else "Say one of those, or go on without me.")
+          made.isNotEmpty() -> "$title: ${text.replace(Regex("\\n\\nIn Jobs to download: [^\\n]*$"), "")} It made ${if (made.size == 1) "a file" else "${made.size} files"}, in Jobs on your phone."
+          title == "Jarvis" -> text
+          else -> "$title: $text"
+        }
 
   /**
    * How the model is told it, as Chat's transcript has it: a bot's words, or a job's question,
