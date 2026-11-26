@@ -89,4 +89,14 @@ class HomeReadingsTest {
     assertNull(infoLine(null, null, false))
     assertEquals("Checked 9:25 PM", checkedAt(1_700_000_000_000L - 1_700_000_000_000L % 86_400_000L + (21 * 60 + 25) * 60_000L, ZoneOffset.UTC))
   }
+
+  @Test
+  fun aReadingRefusedForAToolThatMayDoMoreSaysHomeDoesNotRunIt() {
+    val refused = failedReading(app.jarvis.glasses.hub.Hub.Conflict("music_play may do more than read, so Home does not run it"))
+    assertTrue(refused.failed)
+    assertTrue(refused.acts)
+    assertEquals("Not run by Home: it may do more than read, so it belongs on a button", infoLine("music_play", null, false, acts = refused.acts))
+    assertFalse(failedReading(java.io.IOException("offline")).acts)
+    assertEquals("Reads music state each minute while Home is open", infoLine("music_state", null, false))
+  }
 }

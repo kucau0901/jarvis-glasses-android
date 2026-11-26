@@ -148,6 +148,8 @@ data class Reading(
     val stale: Boolean = false,
     val pending: Boolean = false,
     @kotlinx.serialization.Transient val failed: Boolean = false,
+    /** Refused because its tool may do more than read, which nobody pressing anything may set off: it belongs on a button. The app's own. */
+    @kotlinx.serialization.Transient val acts: Boolean = false,
 )
 
 @Serializable data class ReadingChart(val title: String = "", val points: List<ChartPoint> = emptyList())

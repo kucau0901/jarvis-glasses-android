@@ -48,4 +48,16 @@ class ShownTest {
     assertNull(shown("""{"type":"display","kind":"camera"}"""))
     assertNull(shown("""{"type":"display","kind":"hologram"}"""))
   }
+
+  @Test
+  fun aComponentsVideoIsPlayedSmallestFirstFromItsOwnHttpsAddresses() {
+    val ev = Json.parseToJsonElement(
+        """{"type":"display","kind":"video","label":"Garden cam: Tuesday","poster":"https://cam.example.com/p.jpg",
+          "sources":["https://cam.example.com/1080.mp4","http://cam.example.com/720.mp4","https://cam.example.com/480.mp4#t=12"]}""",
+    ).jsonObject
+    assertEquals(Shown.Video(listOf("https://cam.example.com/480.mp4#t=12", "https://cam.example.com/1080.mp4"), "https://cam.example.com/p.jpg", "Garden cam: Tuesday"), Shown.from(ev))
+    assertNull(Shown.from(Json.parseToJsonElement("""{"type":"display","kind":"video","sources":["http://cam.example.com/a.mp4"]}""").jsonObject))
+    assertEquals("https://cam.example.com/480.mp4" to 12_000, app.jarvis.glasses.ui.videoStart("https://cam.example.com/480.mp4#t=12"))
+    assertEquals("https://cam.example.com/a.mp4" to 0, app.jarvis.glasses.ui.videoStart("https://cam.example.com/a.mp4"))
+  }
 }

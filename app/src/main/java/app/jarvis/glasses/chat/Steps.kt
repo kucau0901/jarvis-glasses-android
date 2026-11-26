@@ -2,13 +2,14 @@ package app.jarvis.glasses.chat
 
 /**
  * What Chat shows while Jarvis works: one short pill per tool call, in words, never the tool's own
- * name (src/app/steps.ts in jarvis-voice-agent, which keeps the same list).
+ * name (src/app/steps.ts in jarvis-voice-agent, which keeps the same list, and the browser's here).
  */
 object Steps {
   private val DOING =
       mapOf(
           "calendar_check" to "Checking your calendar",
           "calendar_add" to "Adding to your calendar",
+          "calendar_change" to "Changing your calendar",
           "mail_check" to "Checking your mail",
           "mail_search" to "Searching your mail",
           "mail_send" to "Sending that email",
@@ -28,10 +29,31 @@ object Steps {
           "recall" to "Checking your notes",
           "forget" to "Forgetting that",
           "look_back" to "Looking back through our chat",
-          "control_home" to "Asking home",
           "ask_hermes" to "Handing it to Hermes",
           "start_job" to "Starting a job",
+          "job_control" to "Telling the job",
           "job_results" to "Checking your jobs",
+          "job_plan" to "Planning the work",
+          "job_tick" to "Going down its list",
+          "read_result" to "Reading on",
+          "ask_person" to "Asking you",
+          "delegate" to "Giving its work out",
+          "share_findings" to "Comparing notes",
+          "hand_file" to "Handing over a file",
+          "specialty_read" to "Reading how you like it done",
+          "project_read" to "Reading the project's files",
+          "publish_site" to "Putting a site to you",
+          "propose_pull" to "Putting a change to you",
+          "repo_bring" to "Bringing the repository's files",
+          "run" to "Running a program",
+          "process" to "Checking a program",
+          "list_files" to "Looking at its files",
+          "read_file" to "Reading a file",
+          "write_file" to "Writing a file",
+          "edit_file" to "Changing a file",
+          "give_file" to "Giving you a file",
+          "mail_file" to "Fetching an attachment",
+          "time_in" to "Checking the time",
           "routine_add" to "Setting up the routine",
           "routine_list" to "Checking your routines",
           "routine_remove" to "Removing the routine",

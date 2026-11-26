@@ -586,4 +586,23 @@ class HubTest {
     assertTrue(p.open.single().needsPhone)
     assertEquals("Dear Wren", p.later.single().body)
   }
+
+  @Test
+  fun a409SaysWhyAndGoogleAccountsAreListedAndUnlinked() = runBlocking {
+    server.enqueue(MockResponse().setResponseCode(409).setBody("""{"error":"music_play may do more than read, so Home does not run it"}"""))
+    val refused = runCatching { hub.read("p_home", "music", cached = true) }.exceptionOrNull()
+    assertTrue(refused is Hub.Conflict)
+    assertEquals("music_play may do more than read, so Home does not run it", refused?.message)
+    server.takeRequest()
+    server.enqueue(
+        MockResponse().setBody("""{"linked":true,"account":"wren@example.com","working":true,"accounts":[{"id":"0a1b2c3d","account":"wren@example.com","working":true,"problem":null},{"id":"4e5f6a7b","account":"work@example.com","working":false,"problem":"Link it again"}]}"""),
+    )
+    assertEquals(listOf("wren@example.com", "work@example.com"), hub.googleAccounts().accounts.map { it.account })
+    server.takeRequest()
+    server.enqueue(MockResponse().setBody("""{"ok":true,"linked":true}"""))
+    hub.unlinkGoogle("4e5f6a7b")
+    val req = server.takeRequest()
+    assertEquals("/api/google/unlink", req.path)
+    assertEquals("""{"account":"4e5f6a7b"}""", req.body.readUtf8())
+  }
 }

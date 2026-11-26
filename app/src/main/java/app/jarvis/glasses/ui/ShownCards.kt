@@ -63,6 +63,7 @@ internal fun ShownCard(hub: Hub, s: Shown, key: String, person: Boolean) {
     is Shown.Picture -> PictureCard(hub, s)
     is Shown.Page -> PageCard(hub, MadePage(s.id, s.title))
     Shown.Browser -> BrowserCard(hub, key)
+    is Shown.Video -> VideoCard(hub, s)
     Shown.Close -> Unit
   }
 }
@@ -312,3 +313,22 @@ private suspend fun savePicture(ctx: Context, name: String, bytes: ByteArray) =
       val uri = ctx.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: error("Pictures isn't available")
       ctx.contentResolver.openOutputStream(uri)!!.use { it.write(bytes) }
     }
+
+/** A component's video under the answer, its poster fetched as it is, with nothing of Jarvis's sent to its address. */
+@Composable
+private fun VideoCard(hub: Hub, v: Shown.Video) {
+  var poster by remember(v.poster) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+  LaunchedEffect(v.poster) {
+    val url = v.poster ?: return@LaunchedEffect
+    poster =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+          runCatching {
+                hub.client.http.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { res ->
+                  if (!res.isSuccessful) null else res.body?.bytes()?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
+                }
+              }
+              .getOrNull()
+        }?.asImageBitmap()
+  }
+  VideoPlayer(v.sources, v.label, poster, Modifier.fillMaxWidth().padding(top = 6.dp))
+}
